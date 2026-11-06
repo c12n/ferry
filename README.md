@@ -4,7 +4,7 @@
 
 <h1 align="center">Tether</h1>
 
-<p align="center">Share your iPhone's internet with an iPad, Mac or travel router over WireGuard | even when your cellular plan blocks or slows down Personal Hotspot.</p>
+<p align="center">Download Tether on your iPhone, then any device that can install the WireGuard app or use the WireGuard protocol can use your hotspot | even when your cellular plan blocks or slows down Personal Hotspot.</p>
 
 <p align="center">
   <img src="https://img.shields.io/badge/Platform-iOS%2017%2B-0B7285" alt="Platform: iOS 17+">
