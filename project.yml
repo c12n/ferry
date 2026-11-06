@@ -13,7 +13,7 @@ settings:
     TARGETED_DEVICE_FAMILY: "1,2"
     # The app's bundle ID. Pass APP_BUNDLE_ID to xcodebuild to change it.
     APP_BUNDLE_ID: com.c12n.tether
-    MARKETING_VERSION: "1.0"
+    MARKETING_VERSION: "1.1.0"
     CURRENT_PROJECT_VERSION: "1" # the built app gets the commit count instead, see postBuildScripts
 targets:
   Tether:
@@ -23,6 +23,14 @@ targets:
     dependencies:
       - framework: WireGuard/build/TetherWG.xcframework
         embed: false # a static library, linked into the app
+      - target: TetherWidgets
+        embed: true
+    # The App Group carries the widget snapshot. After a third-party re-sign it may not
+    # resolve; the app and widget both cope (see WidgetSnapshot.swift).
+    entitlements:
+      path: Sources/Tether.entitlements
+      properties:
+        com.apple.security.application-groups: [group.com.c12n.tether]
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: $(APP_BUNDLE_ID)
@@ -49,8 +57,33 @@ targets:
       path: Sources/Info.plist
       properties:
         UIBackgroundModes: [audio]
+        NSSupportsLiveActivities: true
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+  # The widget + Live Activity extension. The shared files (the activity's shape, the
+  # widget snapshot, the text formats) are compiled into it as well as the app.
+  TetherWidgets:
+    type: app-extension
+    platform: iOS
+    sources:
+      - Widgets
+      - Sources/TetherActivityAttributes.swift
+      - Sources/WidgetSnapshot.swift
+      - Sources/Format.swift
+    entitlements:
+      path: Widgets/TetherWidgets.entitlements
+      properties:
+        com.apple.security.application-groups: [group.com.c12n.tether]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.c12n.tether.widgets
+        INFOPLIST_KEY_CFBundleDisplayName: Tether Widgets
+    info:
+      path: Widgets/Info.plist
+      properties:
+        CFBundleDisplayName: Tether Widgets
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
   TetherUITests:
     type: bundle.ui-testing
     platform: iOS
@@ -66,6 +99,7 @@ schemes:
     build:
       targets:
         Tether: all
+        TetherWidgets: all
     run:
       config: Debug
     test:

@@ -287,6 +287,71 @@ final class WireGuardSetupTests: XCTestCase {
     }
 }
 
+final class PeerAccessTests: XCTestCase {
+    /// A setup JSON as the version before guests, pausing, caps and kinds saved it: the
+    /// peer has none of those keys. Decoding it must give a permanent, unpaused device —
+    /// an upgrade must not lose or change anyone's devices.
+    func testASetupSavedBeforeAccessFieldsDecodeWithDefaults() throws {
+        var setup = WireGuardSetup.new()
+        let peer = try XCTUnwrap(setup.addPeer(name: "iPad"))
+        var object = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(setup)) as? [String: Any])
+        var peers = try XCTUnwrap(object["peers"] as? [[String: Any]])
+        for key in ["expiresAt", "paused", "pauseReason", "capBytes", "kind"] { peers[0].removeValue(forKey: key) }
+        object["peers"] = peers
+        let decoded = try JSONDecoder().decode(WireGuardSetup.self, from: JSONSerialization.data(withJSONObject: object))
+        let device = try XCTUnwrap(decoded.peers.first)
+        XCTAssertEqual(device.id, peer.id)
+        XCTAssertNil(device.expiresAt)
+        XCTAssertFalse(device.paused)
+        XCTAssertNil(device.pauseReason)
+        XCTAssertNil(device.capBytes)
+        XCTAssertEqual(device.kind, .other)
+    }
+
+    func testAPausedDeviceIsNotInTheServersPeersButStaysPaired() throws {
+        var setup = WireGuardSetup.new()
+        let a = try XCTUnwrap(setup.addPeer(name: "iPad"))
+        let b = try XCTUnwrap(setup.addPeer(name: "Mac"))
+        setup.prepareReady()
+        setup.setPeerPaused(a.id, true)
+        XCTAssertEqual(setup.peers.count, 2, "still paired")
+        XCTAssertEqual(setup.serverPeers.map(\.id), [b.id] + [setup.ready!.id], "but the server doesn't let it in")
+        setup.setPeerPaused(a.id, false)
+        XCTAssertTrue(setup.serverPeers.contains { $0.id == a.id }, "resuming lets it in again")
+        XCTAssertNil(setup.peers.first { $0.id == a.id }?.pauseReason, "resuming clears the reason")
+    }
+
+    func testAGuestExpiresAtItsDate() throws {
+        var setup = WireGuardSetup.new()
+        let guest = try XCTUnwrap(setup.addPeer(name: "Guest"))
+        let permanent = try XCTUnwrap(setup.addPeer(name: "Mine"))
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        setup.setPeerExpiry(guest.id, to: now.addingTimeInterval(3600))
+        XCTAssertTrue(setup.expiredPeers(now: now.addingTimeInterval(3601)).map(\.id) == [guest.id])
+        XCTAssertTrue(setup.expiredPeers(now: now).isEmpty, "not before the date")
+        XCTAssertFalse(permanent.isExpired(now: now.addingTimeInterval(86_400 * 365)), "permanent never expires")
+        setup.setPeerExpiry(guest.id, to: nil)
+        XCTAssertTrue(setup.expiredPeers(now: now.addingTimeInterval(86_400 * 365)).isEmpty, "permanent again")
+    }
+
+    func testAccessChangesRoundTripThroughTheSavedSetup() throws {
+        let secrets = FlakySecrets()
+        let devices = WireGuardDevices(secrets: secrets)
+        let peer = devices.connectReady()!
+        let until = Date(timeIntervalSince1970: 1_800_000_000)
+        XCTAssertTrue(devices.setExpiry(peer.id, to: until))
+        XCTAssertTrue(devices.setPaused(peer.id, true, reason: .cap))
+        XCTAssertTrue(devices.setCap(peer.id, to: 1_000_000_000))
+        XCTAssertTrue(devices.setKind(peer.id, to: .router))
+        let reloaded = WireGuardDevices(secrets: secrets).setup.peers.first
+        XCTAssertEqual(reloaded?.expiresAt, until)
+        XCTAssertEqual(reloaded?.paused, true)
+        XCTAssertEqual(reloaded?.pauseReason, .cap)
+        XCTAssertEqual(reloaded?.capBytes, 1_000_000_000)
+        XCTAssertEqual(reloaded?.kind, .router)
+    }
+}
+
 /// Uses a Keychain item of its own, so the app's real setup is never touched. Where the Mac's
 /// Keychain refuses a process without entitlements, the tests skip with the status.
 final class KeychainSecretsTests: XCTestCase {

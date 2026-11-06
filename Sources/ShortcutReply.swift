@@ -12,11 +12,15 @@ enum ShortcutReply {
     }
 
     /// After Start Tether. `keptAlive` is false when the silent sound couldn't start, and then iOS
-    /// suspends Tether again as soon as the action ends.
-    static func start(_ state: State, keptAlive: Bool) -> String {
+    /// suspends Tether again as soon as the action ends. `idleLimit` is the idle timeout
+    /// setting (nil is "Never"), so what Start Tether promises matches what Tether does.
+    static func start(_ state: State, keptAlive: Bool, idleLimit: TimeInterval? = KeepAlivePolicy.grace) -> String {
         if !keptAlive { return "Tether couldn't keep running in the background. Open it once." }
         if state.running { return status(state) }
-        let minutes = Int(KeepAlivePolicy.grace / 60)
+        guard let idleLimit else {
+            return "Tether is ready. It starts sharing when a device joins Personal Hotspot."
+        }
+        let minutes = Int(idleLimit / 60)
         return "Tether is ready. It starts sharing when a device joins Personal Hotspot in the next \(minutes) minutes."
     }
 

@@ -28,6 +28,14 @@ final class ShortcutReplyTests: XCTestCase {
                        "Tether is ready. It starts sharing when a device joins Personal Hotspot in the next 10 minutes.")
     }
 
+    func testStartHonoursTheIdleTimeoutSetting() {
+        XCTAssertEqual(ShortcutReply.start(State(running: false, connected: 0), keptAlive: true, idleLimit: 30 * 60),
+                       "Tether is ready. It starts sharing when a device joins Personal Hotspot in the next 30 minutes.")
+        XCTAssertEqual(ShortcutReply.start(State(running: false, connected: 0), keptAlive: true, idleLimit: nil),
+                       "Tether is ready. It starts sharing when a device joins Personal Hotspot.",
+                       "the Never setting promises no number")
+    }
+
     func testStartWithTheHotspotOnSaysItShares() {
         XCTAssertEqual(ShortcutReply.start(State(running: true, connected: 2), keptAlive: true), "Tether is sharing with 2 devices.")
     }

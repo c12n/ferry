@@ -58,7 +58,8 @@ struct WireGuardProblemSection: View {
     }
 }
 
-/// One device: whether it's connected, and removing it. Tapping the title renames it.
+/// One device: whether it's connected, what it has used, its cap, its access (permanent,
+/// guest, paused), and removing it. Tapping the title renames it.
 struct DeviceView: View {
     @ObservedObject var model: Model
     let peer: WireGuardSetup.Peer
@@ -69,12 +70,119 @@ struct DeviceView: View {
     private var current: WireGuardSetup.Peer { model.wireGuardPeers.first { $0.id == peer.id } ?? peer }
     private var connected: Bool { model.wireGuardConnected.contains(peer.address) }
 
+    private static let capOptions: [(label: String, bytes: UInt64?)] = [
+        ("Off", nil), ("500 MB", 500_000_000), ("1 GB", 1_000_000_000),
+        ("2 GB", 2_000_000_000), ("5 GB", 5_000_000_000), ("10 GB", 10_000_000_000),
+    ]
+
+    private var capBinding: Binding<UInt64?> {
+        Binding(get: { current.capBytes }, set: { model.setWireGuardDeviceCap(current, to: $0) })
+    }
+
+    private var kindBinding: Binding<WireGuardSetup.Kind> {
+        Binding(get: { current.kind }, set: { model.setWireGuardDeviceKind(current, to: $0) })
+    }
+
+    /// The Access picker speaks in hours from now (0 is permanent), while the record
+    /// keeps a date: the getter finds the closest choice to the time actually left.
+    private var accessBinding: Binding<Int> {
+        Binding(get: {
+            guard let expires = current.expiresAt else { return 0 }
+            let left = expires.timeIntervalSinceNow
+            return [1, 4, 24].min(by: { abs(Double($0) * 3600 - left) < abs(Double($1) * 3600 - left) }) ?? 24
+        }, set: { hours in
+            model.setWireGuardDeviceExpiry(current, to: hours == 0 ? nil : Date().addingTimeInterval(Double(hours) * 3600))
+        })
+    }
+
     var body: some View {
         List {
             Section {
-                ConnectedLabel(connected: connected)
-                    .accessibilityIdentifier("device.status")
+                if current.paused {
+                    Label(current.pauseReason == .cap ? "Paused — data cap reached" : "Paused",
+                          systemImage: "pause.circle.fill")
+                        .foregroundStyle(.orange)
+                        .accessibilityIdentifier("device.status")
+                } else {
+                    ConnectedLabel(connected: connected)
+                        .accessibilityIdentifier("device.status")
+                }
+                if let handshake = model.lastHandshake(for: current) {
+                    LabeledContent("Last handshake", value: Format.dateTime(handshake))
+                }
+                if let seen = model.lastSeen(for: current) {
+                    LabeledContent("Last seen", value: Format.dateTime(seen))
+                }
             }
+
+            Section {
+                let today = model.usageToday(for: current)
+                LabeledContent("Downloaded today", value: Format.bytes(today.down))
+                LabeledContent("Uploaded today", value: Format.bytes(today.up))
+                LabeledContent("This session", value: Format.bytes(model.usageSession(for: current).total))
+                LabeledContent("All time", value: Format.bytes(model.usageAllTime(for: current).total))
+                let speed = model.speed(for: current)
+                if speed.down + speed.up > 0 {
+                    LabeledContent("Now", value: "↓ \(Format.speed(speed.down))  ↑ \(Format.speed(speed.up))")
+                }
+            } header: {
+                Text("Usage")
+            }
+
+            Section {
+                Picker("Data cap for today", selection: capBinding) {
+                    ForEach(Self.capOptions, id: \.label) { option in
+                        Text(option.label).tag(option.bytes)
+                    }
+                }
+                .accessibilityIdentifier("device.cap")
+                if let cap = current.capBytes {
+                    let used = model.usageToday(for: current).total
+                    ProgressView(value: min(1, Double(used) / Double(max(cap, 1)))) {
+                        Text("\(Format.bytes(used)) of \(Format.bytes(cap))")
+                    }
+                    if current.paused, current.pauseReason == .cap {
+                        Text("Cap reached — paused until tomorrow, or raise the cap.")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            } header: {
+                Text("Data cap")
+            } footer: {
+                Text("Counts everything the device uses today, up and down together. At the cap the device pauses until tomorrow.")
+            }
+
+            Section {
+                Picker("Device type", selection: kindBinding) {
+                    ForEach(WireGuardSetup.Kind.allCases, id: \.self) { kind in
+                        Label(kind.label, systemImage: kind.symbol).tag(kind)
+                    }
+                }
+                .accessibilityIdentifier("device.kind")
+                Picker("Access", selection: accessBinding) {
+                    Text("Permanent").tag(0)
+                    Text("Guest · 1 hour").tag(1)
+                    Text("Guest · 4 hours").tag(4)
+                    Text("Guest · 24 hours").tag(24)
+                }
+                .accessibilityIdentifier("device.access")
+                if let expires = current.expiresAt {
+                    LabeledContent("Guest until", value: Format.dateTime(expires))
+                    Text(Format.remaining(until: expires, now: Date()))
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+                Button(current.paused ? "Resume device" : "Pause device") {
+                    model.setWireGuardDevicePaused(current, !current.paused)
+                }
+                .accessibilityIdentifier("device.pause")
+            } header: {
+                Text("Access")
+            } footer: {
+                Text("A guest is removed for good when its time is up. A paused device keeps its key and settings but can't pass traffic. Pausing by hand stays until you resume; a data-cap pause lifts tomorrow.")
+            }
+
             Section {
                 Button("Remove device", role: .destructive) { confirmRemove = true }
                     .accessibilityIdentifier("device.remove")

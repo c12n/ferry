@@ -17,6 +17,40 @@ struct WireGuardSetup: Codable, Equatable {
     static let dns = "1.1.1.1"
     private static let subnet = "10.7.0."
 
+    /// Why a device can't pass traffic right now, though it stays paired.
+    enum PauseReason: String, Codable {
+        /// The person paused it on the device's screen.
+        case manual
+        /// Its data cap for today was reached. Lifts by itself tomorrow.
+        case cap
+    }
+
+    /// What a device is, picked on its screen; only its list icon depends on it.
+    enum Kind: String, Codable, CaseIterable {
+        case iphone, ipad, mac, router, other
+
+        /// The SF Symbol the device list shows for it.
+        var symbol: String {
+            switch self {
+            case .iphone: return "iphone"
+            case .ipad: return "ipad"
+            case .mac: return "laptopcomputer"
+            case .router: return "wifi.router"
+            case .other: return "personalhotspot"
+            }
+        }
+
+        var label: String {
+            switch self {
+            case .iphone: return "iPhone"
+            case .ipad: return "iPad"
+            case .mac: return "Mac"
+            case .router: return "Router"
+            case .other: return "Other"
+            }
+        }
+    }
+
     struct Peer: Codable, Hashable, Identifiable {
         var id = UUID()
         var name: String
@@ -24,6 +58,76 @@ struct WireGuardSetup: Codable, Equatable {
         var privateKey: Data
         var publicKey: Data
         var address: String
+        /// A guest device is removed for good at this date. Nil is permanent access.
+        var expiresAt: Date?
+        /// A paused device keeps its key and settings but isn't in the server's peer list,
+        /// so nothing it sends gets through.
+        var paused = false
+        var pauseReason: PauseReason?
+        /// The most the device may use today, up and down together, in bytes. Nil is no cap.
+        /// Reaching it pauses the device (reason `.cap`) until tomorrow.
+        var capBytes: UInt64?
+        /// What the device is, for its list icon. `.other` until someone picks.
+        var kind: Kind = .other
+
+        /// Has the guest's time run out by `now`?
+        func isExpired(now: Date) -> Bool {
+            expiresAt.map { $0 <= now } ?? false
+        }
+
+        private enum CodingKeys: String, CodingKey {
+            case id, name, privateKey, publicKey, address, expiresAt, paused, pauseReason, capBytes, kind
+        }
+
+        /// Setups saved before guests, pausing and caps existed have none of those keys, and
+        /// an upgrade must not lose the devices in them: the new fields decode as absent.
+        /// (`paused` needs this by hand — a non-optional field's default doesn't apply to a
+        /// synthesized decoder.)
+        init(from decoder: Decoder) throws {
+            let box = try decoder.container(keyedBy: CodingKeys.self)
+            id = try box.decode(UUID.self, forKey: .id)
+            name = try box.decode(String.self, forKey: .name)
+            privateKey = try box.decode(Data.self, forKey: .privateKey)
+            publicKey = try box.decode(Data.self, forKey: .publicKey)
+            address = try box.decode(String.self, forKey: .address)
+            expiresAt = try box.decodeIfPresent(Date.self, forKey: .expiresAt)
+            paused = try box.decodeIfPresent(Bool.self, forKey: .paused) ?? false
+            pauseReason = try box.decodeIfPresent(PauseReason.self, forKey: .pauseReason)
+            capBytes = try box.decodeIfPresent(UInt64.self, forKey: .capBytes)
+            kind = try box.decodeIfPresent(Kind.self, forKey: .kind) ?? .other
+        }
+
+        /// Hand-written with the decoder (a custom `init(from:)` in the body stops the
+        /// synthesized Codable pair, so both halves are here). Optionals encode only
+        /// when set, as the synthesized one would have done.
+        func encode(to encoder: Encoder) throws {
+            var box = encoder.container(keyedBy: CodingKeys.self)
+            try box.encode(id, forKey: .id)
+            try box.encode(name, forKey: .name)
+            try box.encode(privateKey, forKey: .privateKey)
+            try box.encode(publicKey, forKey: .publicKey)
+            try box.encode(address, forKey: .address)
+            try box.encodeIfPresent(expiresAt, forKey: .expiresAt)
+            try box.encode(paused, forKey: .paused)
+            try box.encodeIfPresent(pauseReason, forKey: .pauseReason)
+            try box.encodeIfPresent(capBytes, forKey: .capBytes)
+            try box.encode(kind, forKey: .kind)
+        }
+
+        init(id: UUID = UUID(), name: String, privateKey: Data, publicKey: Data, address: String,
+             expiresAt: Date? = nil, paused: Bool = false, pauseReason: PauseReason? = nil,
+             capBytes: UInt64? = nil, kind: Kind = .other) {
+            self.id = id
+            self.name = name
+            self.privateKey = privateKey
+            self.publicKey = publicKey
+            self.address = address
+            self.expiresAt = expiresAt
+            self.paused = paused
+            self.pauseReason = pauseReason
+            self.capBytes = capBytes
+            self.kind = kind
+        }
     }
 
     var serverPrivateKey: Data
@@ -34,8 +138,10 @@ struct WireGuardSetup: Codable, Equatable {
     /// only in a setup saved before there was one, or with all 253 addresses taken.
     var ready: Peer?
 
-    /// Everyone the server lets in: the devices, and whoever scans the QR code next.
-    var serverPeers: [Peer] { peers + (ready.map { [$0] } ?? []) }
+    /// Everyone the server lets in: the devices that aren't paused, and whoever scans the
+    /// QR code next. A guest whose time is up is taken out of `peers` itself (see Model),
+    /// so it isn't filtered here.
+    var serverPeers: [Peer] { peers.filter { !$0.paused } + (ready.map { [$0] } ?? []) }
 
     var serverPublicKey: Data { Self.publicKey(of: serverPrivateKey) }
 
@@ -83,6 +189,36 @@ struct WireGuardSetup: Codable, Equatable {
 
     mutating func removePeer(_ id: Peer.ID) {
         peers.removeAll { $0.id == id }
+    }
+
+    /// Pauses or resumes a device. Resuming clears the reason; pausing by hand is `.manual`.
+    mutating func setPeerPaused(_ id: Peer.ID, _ paused: Bool, reason: PauseReason = .manual) {
+        guard let i = peers.firstIndex(where: { $0.id == id }) else { return }
+        peers[i].paused = paused
+        peers[i].pauseReason = paused ? reason : nil
+    }
+
+    /// Makes a device a guest until `expiresAt`, or permanent again with nil.
+    mutating func setPeerExpiry(_ id: Peer.ID, to expiresAt: Date?) {
+        guard let i = peers.firstIndex(where: { $0.id == id }) else { return }
+        peers[i].expiresAt = expiresAt
+    }
+
+    /// Sets the device's daily data cap in bytes, or lifts it with nil.
+    mutating func setPeerCap(_ id: Peer.ID, to capBytes: UInt64?) {
+        guard let i = peers.firstIndex(where: { $0.id == id }) else { return }
+        peers[i].capBytes = capBytes
+    }
+
+    /// Sets what the device is, for its list icon.
+    mutating func setPeerKind(_ id: Peer.ID, to kind: Kind) {
+        guard let i = peers.firstIndex(where: { $0.id == id }) else { return }
+        peers[i].kind = kind
+    }
+
+    /// The guests whose time is up by `now`. Model removes them, which revokes their keys.
+    func expiredPeers(now: Date) -> [Peer] {
+        peers.filter { $0.isExpired(now: now) }
     }
 
     /// "Device", then "Device 2", "Device 3", skipping names already taken.
@@ -251,6 +387,27 @@ final class WireGuardDevices {
     @discardableResult
     func rename(_ id: WireGuardSetup.Peer.ID, to name: String) -> Bool {
         change { $0.renamePeer(id, to: name) }
+    }
+
+    /// False when the change couldn't be saved, and then nothing changes.
+    @discardableResult
+    func setPaused(_ id: WireGuardSetup.Peer.ID, _ paused: Bool, reason: WireGuardSetup.PauseReason = .manual) -> Bool {
+        change { $0.setPeerPaused(id, paused, reason: reason) }
+    }
+
+    @discardableResult
+    func setExpiry(_ id: WireGuardSetup.Peer.ID, to expiresAt: Date?) -> Bool {
+        change { $0.setPeerExpiry(id, to: expiresAt) }
+    }
+
+    @discardableResult
+    func setCap(_ id: WireGuardSetup.Peer.ID, to capBytes: UInt64?) -> Bool {
+        change { $0.setPeerCap(id, to: capBytes) }
+    }
+
+    @discardableResult
+    func setKind(_ id: WireGuardSetup.Peer.ID, to kind: WireGuardSetup.Kind) -> Bool {
+        change { $0.setPeerKind(id, to: kind) }
     }
 
     private func change(_ apply: (inout WireGuardSetup) -> Void) -> Bool {

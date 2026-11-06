@@ -12,8 +12,16 @@ enum KeepAlivePolicy {
     /// `waitingSince` is when the hotspot went away, or when Tether was last opened if that was later.
     /// Nil while the hotspot is on.
     static func plays(waitingSince: Date?, now: Date) -> Bool {
+        plays(waitingSince: waitingSince, now: now, idleLimit: grace)
+    }
+
+    /// With the person's idle timeout: how long after the hotspot goes the sound keeps
+    /// playing. A nil limit is "Never" — it plays until the hotspot comes back or Tether
+    /// is closed, whatever the battery cost; that's the choice the setting offers.
+    static func plays(waitingSince: Date?, now: Date, idleLimit: TimeInterval?) -> Bool {
         guard let waitingSince else { return true }
-        return now.timeIntervalSince(waitingSince) < grace
+        guard let idleLimit else { return true }
+        return now.timeIntervalSince(waitingSince) < idleLimit
     }
 
     /// The hotspot is watched every 5 seconds on screen, where starting at once shows. In the

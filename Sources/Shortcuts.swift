@@ -1,21 +1,22 @@
 import AppIntents
 
-// Actions for the Shortcuts app, Siri, Spotlight and the Action button. iOS suspends Tether once
-// nothing has been on the hotspot for 10 minutes (KeepAlivePolicy), and Shortcuts has no trigger
-// for Personal Hotspot turning on. So a shortcut turns the hotspot on with Shortcuts' own Set Personal Hotspot
+// Actions for the Shortcuts app, Siri, Spotlight and the Action button. iOS suspends Tether
+// once nothing has been on the hotspot for the idle timeout (KeepAlivePolicy; 10 minutes by
+// default, adjustable in Settings), and Shortcuts has no trigger for Personal Hotspot
+// turning on. So a shortcut turns the hotspot on with Shortcuts' own Set Personal Hotspot
 // action, then runs Start Tether, which wakes Tether in the background without opening it.
 
 struct StartTetherIntent: AppIntent {
     static var title: LocalizedStringResource = "Start Tether"
     static var description = IntentDescription(
-        "Wakes Tether in the background, the same as opening it. It shares as soon as a device joins Personal Hotspot in the next 10 minutes. Put it after Set Personal Hotspot.")
+        "Wakes Tether in the background, the same as opening it. It shares as soon as a device joins Personal Hotspot. Put it after Set Personal Hotspot.")
 
     @MainActor
     func perform() async throws -> some IntentResult & ReturnsValue<Bool> & ProvidesDialog {
         let model = Model.shared
         let keptAlive = model.wake()
         let state = model.shortcutState()
-        return .result(value: state.sharing, dialog: "\(ShortcutReply.start(state, keptAlive: keptAlive))")
+        return .result(value: state.sharing, dialog: "\(ShortcutReply.start(state, keptAlive: keptAlive, idleLimit: model.idleLimit))")
     }
 }
 

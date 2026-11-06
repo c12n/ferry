@@ -1,3 +1,4 @@
+import Charts
 import SwiftUI
 
 struct MainView: View {
@@ -27,6 +28,20 @@ struct MainView: View {
                 // Above the QR code, so a reason it doesn't work and the way out are both here.
                 WireGuardProblemSection(model: model)
 
+                if model.batteryBlocked {
+                    Section {
+                        Label {
+                            Text("Sharing stopped to save battery. Plug in, or resume — the guard stays off until the battery recovers.")
+                        } icon: {
+                            Image(systemName: "battery.25").foregroundStyle(.orange)
+                        }
+                        Button("Resume sharing") { model.resumeAfterBatteryGuard() }
+                            .accessibilityIdentifier("battery.resume")
+                    } header: {
+                        Text("Battery guard")
+                    }
+                }
+
                 if model.sharing {
                     Section {
                         SpeedRow(down: model.downSpeed, up: model.upSpeed)
@@ -39,25 +54,141 @@ struct MainView: View {
                             NavigationLink { DeviceView(model: model, peer: peer) } label: {
                                 // A plain row: LabeledContent with a Label on its right grows several
                                 // rows tall inside a NavigationLink on iOS 27.
-                                HStack {
-                                    Text(peer.name)
+                                HStack(spacing: 12) {
+                                    Image(systemName: peer.kind.symbol)
+                                        .foregroundStyle(.secondary)
+                                        .frame(width: 24)
+                                        .accessibilityHidden(true)
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(peer.name)
+                                        let caption = deviceCaption(peer, model: model)
+                                        if !caption.isEmpty {
+                                            Text(caption)
+                                                .font(.caption)
+                                                .foregroundStyle(peer.paused ? .orange : .secondary)
+                                        }
+                                    }
                                     Spacer()
-                                    ConnectedLabel(connected: model.wireGuardConnected.contains(peer.address))
-                                        .font(.subheadline)
+                                    if peer.paused {
+                                        Label("Paused", systemImage: "pause.circle.fill")
+                                            .font(.subheadline)
+                                            .foregroundStyle(.orange)
+                                    } else {
+                                        ConnectedLabel(connected: model.wireGuardConnected.contains(peer.address))
+                                            .font(.subheadline)
+                                    }
                                 }
                             }
                             .accessibilityIdentifier("device.\(peer.name)")
                         }
                     }
+
+                    Section("Usage") {
+                        LabeledContent("Today", value: Format.bytes(model.usage.todayTotal().total))
+                        LabeledContent("This session", value: Format.bytes(model.usage.sessionTotal().total))
+                    }
+                }
+
+                if model.speedHistory.count > 1 {
+                    Section("Speed history") {
+                        SpeedHistoryChart(samples: model.speedHistory)
+                    }
                 }
 
                 AddDeviceSection(model: model, first: model.wireGuardPeers.isEmpty)
+
+                Section {
+                    Picker("Idle timeout", selection: $model.idleTimeoutMinutes) {
+                        Text("5 minutes").tag(5)
+                        Text("10 minutes").tag(10)
+                        Text("30 minutes").tag(30)
+                        Text("Never").tag(0)
+                    }
+                    .accessibilityIdentifier("settings.idleTimeout")
+                    Picker("Battery guard", selection: $model.batteryThresholdPercent) {
+                        Text("Off").tag(0)
+                        ForEach(BatteryGuard.levels, id: \.self) { level in
+                            Text("Stop at \(level)%").tag(level)
+                        }
+                    }
+                    .accessibilityIdentifier("settings.batteryGuard")
+                    Toggle("A device connects", isOn: $model.notifyJoins)
+                    Toggle("A device disconnects", isOn: $model.notifyLeaves)
+                    Toggle("Sharing stops", isOn: $model.notifyStopped)
+                    NavigationLink {
+                        DiagnosticsView(model: model)
+                    } label: {
+                        Label("Diagnostics", systemImage: "stethoscope")
+                    }
+                    .accessibilityIdentifier("settings.diagnostics")
+                } header: {
+                    Text("Settings")
+                } footer: {
+                    Text("Idle timeout: how long Tether keeps waiting after the hotspot goes before iOS suspends it. Battery guard stops sharing at the chosen level while on battery.")
+                }
             }
             // The status card says what this screen is, so the root drops the big title. It's still set,
             // because the screens pushed from here use it for their back button.
             .navigationTitle("Tether")
             .toolbar(.hidden, for: .navigationBar)
         }
+    }
+}
+
+/// The small line under a device's name: its state, its guest time, what it used today
+/// and its speed, as much of that as applies.
+private func deviceCaption(_ peer: WireGuardSetup.Peer, model: Model) -> String {
+    if peer.paused {
+        return peer.pauseReason == .cap ? "Paused · data cap reached" : "Paused"
+    }
+    var parts: [String] = []
+    if let expires = peer.expiresAt {
+        parts.append("Guest · \(Format.remaining(until: expires, now: Date()))")
+    }
+    let today = model.usageToday(for: peer).total
+    if today > 0 { parts.append("\(Format.bytes(today)) today") }
+    let speed = model.speed(for: peer)
+    if speed.down + speed.up > 0 {
+        parts.append("↓ \(Format.speed(speed.down)) ↑ \(Format.speed(speed.up))")
+    }
+    return parts.joined(separator: " · ")
+}
+
+/// The session's speeds as a graph, down in the accent colour and up in the upload
+/// colour — the same colours as everywhere else speeds show.
+struct SpeedHistoryChart: View {
+    let samples: [Model.SpeedSample]
+
+    /// At most 300 points, so a second of samples an hour long stays cheap to draw.
+    private var points: [Model.SpeedSample] {
+        let step = max(1, samples.count / 300)
+        return samples.enumerated().filter { $0.offset % step == 0 }.map(\.element)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Chart {
+                ForEach(points) { sample in
+                    LineMark(x: .value("Time", sample.date),
+                             y: .value("Speed", sample.down / 1e6),
+                             series: .value("Direction", "Down"))
+                        .foregroundStyle(Direction.download)
+                    LineMark(x: .value("Time", sample.date),
+                             y: .value("Speed", sample.up / 1e6),
+                             series: .value("Direction", "Up"))
+                        .foregroundStyle(Direction.upload)
+                }
+            }
+            .chartYAxisLabel("Mbit/s")
+            .frame(height: 120)
+            .accessibilityLabel("Speed history graph for this session")
+            HStack(spacing: 16) {
+                Label("Down", systemImage: "arrow.down").foregroundStyle(Direction.download)
+                Label("Up", systemImage: "arrow.up").foregroundStyle(Direction.upload)
+            }
+            .font(.caption)
+        }
+        .padding(.vertical, 4)
     }
 }
 

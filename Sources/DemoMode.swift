@@ -74,7 +74,13 @@ struct DemoState {
         case .sharing, .wireGuardLocked, .expiring:
             var setup = WireGuardSetup.new()
             _ = setup.addPeer(name: "iPad")
-            _ = setup.addPeer(name: "MacBook")
+            // The MacBook is a guest, so the device list and its screen show the guest
+            // state too. From the launch, not the fixed scenario date, so it never
+            // reads as already expired.
+            if let mac = setup.addPeer(name: "MacBook") {
+                setup.setPeerExpiry(mac.id, to: Date().addingTimeInterval(2 * 3600))
+                setup.setPeerKind(mac.id, to: .mac)
+            }
             secrets.data = try? JSONEncoder().encode(setup)
         case .wireGuardNeedsReset:
             secrets.data = Data("not a WireGuard setup".utf8) // undecodable, like a setup from a newer version

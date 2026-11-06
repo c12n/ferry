@@ -2,9 +2,16 @@
 //   TetherApp.swift     the @main App only
 //   Model.swift         Model, Interfaces
 //   Traffic.swift       the server's byte counters, Foundation only
+//   Usage.swift         per-device usage totals and caps, Foundation only
+//   BatteryGuard.swift  when low battery stops sharing, Foundation only
 //   Format.swift        bytes and speeds as text
-//   MainView.swift      MainView (the main screen), StatusCard, and the speeds
+//   MainView.swift      MainView (the main screen), StatusCard, the speeds, settings and the history graph
 //   DevicesView.swift   the QR code for the next device, and a device's own screen
+//   DiagnosticsView.swift  the Diagnostics screen and its shareable summary
+//   WidgetSnapshot.swift  the state the widget shows, shared through the App Group, Foundation only
+//   TetherActivityAttributes.swift  the Live Activity's shape, app and widget extension only
+//   SharingActivity.swift  drives the Live Activity and the widget snapshot, app only
+//   Notifier.swift      local notifications: joins, leaves, stops, caps, battery, app only
 //   AppExpiry.swift     when a sideloaded build stops opening, and the warning before it
 //   DemoMode.swift      fake app state for the UI tests, Debug builds only
 //   Shortcuts.swift     the Shortcuts actions; ShortcutReply.swift has what they say, Foundation only
@@ -43,9 +50,72 @@ final class Model: ObservableObject {
     /// while the app is on screen.
     @Published var wireGuardConnected: Set<String> = []
 
+    /// Per-device usage (session, today, all time), kept across launches. See Usage.swift.
+    @Published private(set) var usage: UsageTracker
+    /// Each device's speed now, in bits per second, by device key (see `key(for:)`).
+    /// From the same readings as the usage; a quiet device reads zero.
+    @Published private(set) var deviceSpeeds: [String: (down: Double, up: Double)] = [:]
+    /// When each device last handshaked, by device key. Nil for a device that never has
+    /// in any run Tether has seen.
+    @Published private(set) var deviceHandshakes: [String: Date] = [:]
+    /// When each device was last seen — a handshake or traffic, whichever is later.
+    @Published private(set) var deviceLastSeen: [String: Date] = [:]
+
+    /// One point of the speed history graph: the total speeds at a moment.
+    struct SpeedSample: Identifiable, Equatable {
+        let id = UUID()
+        let date: Date
+        let down: Double
+        let up: Double
+    }
+
+    /// The session's speed samples, newest last, at most an hour of them. Session-only:
+    /// a relaunch starts an empty graph.
+    @Published private(set) var speedHistory: [SpeedSample] = []
+
+    // MARK: - Settings
+
+    /// The settings, all in UserDefaults, all changeable from the main screen's Settings
+    /// section. The defaults preserve the behaviour before there were settings.
+    @Published var idleTimeoutMinutes: Int = (UserDefaults.standard.object(forKey: "tether.idleTimeoutMinutes") as? Int) ?? 10 {
+        didSet { UserDefaults.standard.set(idleTimeoutMinutes, forKey: "tether.idleTimeoutMinutes") }
+    }
+    /// The idle timeout as KeepAlivePolicy takes it: nil is "Never".
+    var idleLimit: TimeInterval? { idleTimeoutMinutes > 0 ? TimeInterval(idleTimeoutMinutes * 60) : nil }
+    /// The battery guard's stop level in percent; 0 is off.
+    @Published var batteryThresholdPercent: Int = UserDefaults.standard.integer(forKey: "tether.batteryThresholdPercent") {
+        didSet { UserDefaults.standard.set(batteryThresholdPercent, forKey: "tether.batteryThresholdPercent") }
+    }
+    @Published var notifyJoins: Bool = (UserDefaults.standard.object(forKey: "tether.notifyJoins") as? Bool) ?? true {
+        didSet {
+            UserDefaults.standard.set(notifyJoins, forKey: "tether.notifyJoins")
+            if notifyJoins { notifier.requestAuthorization() }
+        }
+    }
+    @Published var notifyLeaves: Bool = (UserDefaults.standard.object(forKey: "tether.notifyLeaves") as? Bool) ?? true {
+        didSet {
+            UserDefaults.standard.set(notifyLeaves, forKey: "tether.notifyLeaves")
+            if notifyLeaves { notifier.requestAuthorization() }
+        }
+    }
+    @Published var notifyStopped: Bool = (UserDefaults.standard.object(forKey: "tether.notifyStopped") as? Bool) ?? true {
+        didSet {
+            UserDefaults.standard.set(notifyStopped, forKey: "tether.notifyStopped")
+            if notifyStopped { notifier.requestAuthorization() }
+        }
+    }
+    /// The battery guard stopped sharing and it hasn't recovered (or been resumed) yet.
+    @Published private(set) var batteryBlocked = false
+    /// A manual Resume after a battery stop: the guard stays out of the way until the
+    /// battery recovers properly (see BatteryGuard.recovered).
+    private var batteryOverride = false
+    private var batteryWarned = false
+
     private let wireGuard = WireGuardServer()
     private let wireGuardDevices: WireGuardDevices
     private let keepAlive = KeepAlive()
+    private let notifier = Notifier()
+    private let sharingActivity = SharingActivity()
     private static let logger = Logger(subsystem: "com.vsvirskyi.phoneshare", category: "tether")
     /// Only the on-screen sampler publishes connections and speeds, so it runs only while the app is on screen.
     /// False in a launch from a Shortcuts action, which happens in the background.
@@ -66,6 +136,7 @@ final class Model: ObservableObject {
         self.wireGuardDevices = WireGuardDevices(secrets: secrets)
         self.wireGuardPeers = wireGuardDevices.setup.peers
         self.wireGuardReady = wireGuardDevices.setup.ready
+        self.usage = UsageStore.load()
         #if DEBUG
         if let demo {
             self.demo = demo
@@ -74,6 +145,13 @@ final class Model: ObservableObject {
             return // no server, keep-alive audio, watcher, sampler or scene observers
         }
         #endif
+        // Guests whose time ran out while Tether was closed are removed before anything
+        // starts, so their keys never work again.
+        for peer in wireGuardDevices.setup.expiredPeers(now: Date()) {
+            usage.forget(Self.key(for: peer))
+            _ = wireGuardDevices.remove(peer.id)
+        }
+        publishSetup()
         refreshExpiryWarning()
         observeScene()
         watcher = Task { [weak self] in
@@ -112,16 +190,38 @@ final class Model: ObservableObject {
 
     private var watcher: Task<Void, Never>?
     /// When the hotspot went away, or Tether was last on screen since. Nil while the hotspot is on.
-    /// A launch starts long past, so only opening Tether or Start Tether (`wake`) gives it the 10
-    /// minutes. "Is Tether Sharing?" launches Tether in the background too, and only reports.
+    /// A launch starts long past, so only opening Tether or Start Tether (`wake`) gives it the
+    /// idle timeout. "Is Tether Sharing?" launches Tether in the background too, and only reports.
     private var waitingSince: Date? = .distantPast
     private var sampler: Task<Void, Never>?
     private var lastSample: (up: UInt64, down: UInt64, at: Date)?
-    private var boundHost: String?
+    /// The hotspot address the server is bound to, for the Diagnostics screen.
+    @Published private(set) var boundHost: String?
+    /// The last per-device readings fed to the usage tracker, and when, for device speeds.
+    private var lastUsageReadings: [String: DeviceUsage] = [:]
+    private var lastUsageAt: Date?
+    private var lastUsageSave = Date.distantPast
 
     /// The hotspot interface exists only while Personal Hotspot is on. This starts WireGuard when
     /// it appears and stops it when it goes away or changes, so it never listens anywhere else.
     func syncWithHotspot() {
+        // The battery guard stopped sharing: nothing starts again until the battery
+        // recovers or the person resumes it (see checkBattery / resumeAfterBatteryGuard).
+        // The recovery is checked here too, since the sampler's checks stop with sharing.
+        if batteryBlocked {
+            updateBatteryMonitoring()
+            if !batteryRecovered() {
+                if wireGuard.running { wireGuard.stop() }
+                if running { running = false }
+                return
+            }
+            batteryBlocked = false
+            batteryOverride = false
+            batteryWarned = false
+            append("battery recovered, the guard steps aside")
+        }
+        let wasRunning = running
+        let wasSharing = sharing
         let hotspot = Interfaces.hotspotAddress()
         if running, hotspot != boundHost {
             append("hotspot address gone or changed, stopping")
@@ -131,16 +231,31 @@ final class Model: ObservableObject {
         // A WireGuard start that failed (keys locked after a restart, say) is tried again here.
         if running, !wireGuard.running, let boundHost { startWireGuard(on: boundHost) }
         keepAliveWhileSharing(hotspot: hotspot != nil)
-        guard !running, let hotspot else { return }
-        append("binding to \(hotspot)")
-        boundHost = hotspot
-        startWireGuard(on: hotspot)
-        // A restart (hotspot address change) never passes through running == false in the
-        // sampler, so start the session's counters afresh here.
-        lastSample = nil
-        downSpeed = 0
-        upSpeed = 0
-        running = true
+        if !running, let hotspot {
+            append("binding to \(hotspot)")
+            boundHost = hotspot
+            startWireGuard(on: hotspot)
+            // A restart (hotspot address change) never passes through running == false in the
+            // sampler, so start the session's counters afresh here.
+            lastSample = nil
+            downSpeed = 0
+            upSpeed = 0
+            running = true
+        }
+        if running, !wasRunning {
+            // A new sharing session: its usage and its graph start from zero, and this is
+            // the contextual moment to ask about notifications — never at first launch.
+            usage.startSession()
+            speedHistory = []
+            if notifyJoins || notifyLeaves || notifyStopped { notifier.requestAuthorization() }
+        }
+        if wasSharing, !sharing, notifyStopped {
+            notifier.sharingStopped(reason: running
+                ? (wireGuardProblem ?? "WireGuard stopped.")
+                : "Personal Hotspot turned off.")
+        }
+        updateBatteryMonitoring()
+        publishExternalState()
     }
 
     /// Plays the silent sound while the hotspot is on, and for a while after it goes, see
@@ -149,9 +264,9 @@ final class Model: ObservableObject {
         // On screen the wait keeps starting again, so the sound never stops there, and the 10 minutes
         // run from leaving the screen, to turn on Personal Hotspot in Settings, say.
         if hotspot { waitingSince = nil } else if sceneActive || waitingSince == nil { waitingSince = now }
-        let plays = KeepAlivePolicy.plays(waitingSince: waitingSince, now: now)
+        let plays = KeepAlivePolicy.plays(waitingSince: waitingSince, now: now, idleLimit: idleLimit)
         if plays { keepAlive.start() } else if keepAlive.playing {
-            append("no hotspot for 10 minutes, letting iOS suspend Tether until it's opened")
+            append("no hotspot for \(idleTimeoutMinutes) minutes, letting iOS suspend Tether until it's opened")
             keepAlive.stop()
         }
     }
@@ -225,9 +340,56 @@ final class Model: ObservableObject {
     }
 
     func removeWireGuardDevice(_ id: WireGuardSetup.Peer.ID) {
+        if let peer = wireGuardPeers.first(where: { $0.id == id }) {
+            usage.forget(Self.key(for: peer))
+            deviceSpeeds[Self.key(for: peer)] = nil
+        }
         if !wireGuardDevices.remove(id) { append("WireGuard: the removal couldn't be saved, the device stays") }
         wireGuardPeersChanged()
     }
+
+    /// The key a device's usage, speeds and last-seen are filed under: its public key, so
+    /// they follow the device even if its tunnel address is reused by another later.
+    static func key(for peer: WireGuardSetup.Peer) -> String {
+        peer.publicKey.base64EncodedString()
+    }
+
+    func usageToday(for peer: WireGuardSetup.Peer) -> DeviceUsage { usage.todayUsage(for: Self.key(for: peer)) }
+    func usageSession(for peer: WireGuardSetup.Peer) -> DeviceUsage { usage.sessionUsage(for: Self.key(for: peer)) }
+    func usageAllTime(for peer: WireGuardSetup.Peer) -> DeviceUsage { usage.allTimeUsage(for: Self.key(for: peer)) }
+    func speed(for peer: WireGuardSetup.Peer) -> (down: Double, up: Double) { deviceSpeeds[Self.key(for: peer)] ?? (0, 0) }
+    func lastSeen(for peer: WireGuardSetup.Peer) -> Date? { deviceLastSeen[Self.key(for: peer)] }
+    func lastHandshake(for peer: WireGuardSetup.Peer) -> Date? { deviceHandshakes[Self.key(for: peer)] }
+
+    /// Pauses or resumes a device by hand. A paused device leaves the server's peer list
+    /// at once (see `wireGuardPeersChanged`), so its traffic stops; its key stays.
+    func setWireGuardDevicePaused(_ peer: WireGuardSetup.Peer, _ paused: Bool) {
+        if !wireGuardDevices.setPaused(peer.id, paused) { append("WireGuard: the pause couldn't be saved") }
+        wireGuardPeersChanged()
+    }
+
+    /// Makes a device a guest until `expiresAt`, or permanent again with nil. Only the
+    /// record changes; enforcement (removal at the date) happens on the sampler/watcher.
+    func setWireGuardDeviceExpiry(_ peer: WireGuardSetup.Peer, to expiresAt: Date?) {
+        if !wireGuardDevices.setExpiry(peer.id, to: expiresAt) { append("WireGuard: the guest change couldn't be saved") }
+        publishSetup()
+    }
+
+    /// Sets the device's daily data cap. If it is already past the new cap, the next
+    /// sample pauses it — usually the one a second later.
+    func setWireGuardDeviceCap(_ peer: WireGuardSetup.Peer, to capBytes: UInt64?) {
+        if !wireGuardDevices.setCap(peer.id, to: capBytes) { append("WireGuard: the cap couldn't be saved") }
+        publishSetup()
+    }
+
+    func setWireGuardDeviceKind(_ peer: WireGuardSetup.Peer, to kind: WireGuardSetup.Kind) {
+        if !wireGuardDevices.setKind(peer.id, to: kind) { append("WireGuard: the kind couldn't be saved") }
+        publishSetup()
+    }
+
+    /// The Diagnostics screen reads these.
+    var wireGuardRunning: Bool { wireGuard.running }
+    var keepAliveActive: Bool { keepAlive.playing }
 
     func wireGuardConfig(for peer: WireGuardSetup.Peer) -> String {
         wireGuardDevices.setup.clientConfig(for: peer)
@@ -256,18 +418,182 @@ final class Model: ObservableObject {
             if downSpeed != 0 { downSpeed = 0 }
             if upSpeed != 0 { upSpeed = 0 }
             if !wireGuardConnected.isEmpty { wireGuardConnected = [] }
+            publishExternalState()
             return
         }
         let snap = wireGuard.snapshot()
         defer { lastSample = (snap.bytesUp, snap.bytesDown, now) }
         let connected = wireGuard.connectedAddresses // from the snapshot above
+        let wasConnected = wireGuardConnected
         if connected != wireGuardConnected { wireGuardConnected = connected }
         claimReady(connected: connected)
-        guard let last = lastSample else { return } // the first sample has nothing to compare with
+        // After claiming, so a device that just paired is in the list and has its name.
+        if connected != wasConnected { notifyConnectionChanges(from: wasConnected, to: connected) }
+        recordUsage(now: now)
+        enforceAccess(now: now)
+        checkBattery()
+        guard let last = lastSample else { publishExternalState(); return } // the first sample has nothing to compare with
         let seconds = now.timeIntervalSince(last.at)
-        guard seconds > 0 else { return }
+        guard seconds > 0 else { publishExternalState(); return }
         upSpeed = Self.bps(snap.bytesUp, last.up, seconds)
         downSpeed = Self.bps(snap.bytesDown, last.down, seconds)
+        speedHistory.append(SpeedSample(date: now, down: downSpeed, up: upSpeed))
+        if speedHistory.count > 3600 { speedHistory.removeFirst(speedHistory.count - 3600) }
+        publishExternalState()
+    }
+
+    /// Feeds the server's per-device counters to the usage tracker, and works out each
+    /// device's speed and last-seen from the same readings. The readings are cumulative
+    /// (the server's carried totals), so what a device used while the screen was off is
+    /// in the difference when the next sample arrives.
+    private func recordUsage(now: Date) {
+        let readings = wireGuard.peerSnapshot()
+        var byKey: [String: DeviceUsage] = [:]
+        var speeds: [String: (down: Double, up: Double)] = [:]
+        let seconds = lastUsageAt.map { now.timeIntervalSince($0) } ?? 0
+        for peer in wireGuardDevices.setup.serverPeers {
+            guard let reading = readings[peer.address] else { continue }
+            let key = Self.key(for: peer)
+            let current = DeviceUsage(up: reading.totals.bytesUp, down: reading.totals.bytesDown)
+            byKey[key] = current
+            if let handshake = reading.lastHandshake {
+                if handshake != deviceHandshakes[key] { deviceHandshakes[key] = handshake }
+                markSeen(key, handshake)
+            }
+            if let before = lastUsageReadings[key], seconds > 0 {
+                let movedDown = UsageTracker.delta(new: current.down, old: before.down)
+                let movedUp = UsageTracker.delta(new: current.up, old: before.up)
+                speeds[key] = (Double(movedDown) * 8 / seconds, Double(movedUp) * 8 / seconds)
+                if movedDown + movedUp > 0 { markSeen(key, now) }
+            }
+        }
+        lastUsageReadings = byKey
+        lastUsageAt = now
+        deviceSpeeds = speeds
+        if usage.record(byKey, now: now) {
+            liftCapPauses() // a new day: yesterday's cap pauses lift by themselves
+        }
+        if now.timeIntervalSince(lastUsageSave) > 10 {
+            lastUsageSave = now
+            UsageStore.save(usage)
+        }
+    }
+
+    private func markSeen(_ key: String, _ date: Date) {
+        if let current = deviceLastSeen[key], current >= date { return }
+        deviceLastSeen[key] = date
+    }
+
+    /// Guests whose time is up are removed (their keys stop working), and a device that
+    /// reaches its data cap for today is paused until tomorrow.
+    private func enforceAccess(now: Date) {
+        for peer in wireGuardDevices.setup.expiredPeers(now: now) {
+            append("WireGuard: guest \(peer.name) expired, removing it")
+            removeWireGuardDevice(peer.id)
+        }
+        for peer in wireGuardPeers where !peer.paused && peer.capBytes != nil {
+            let used = usage.todayUsage(for: Self.key(for: peer)).total
+            guard UsageTracker.capReached(usedToday: used, capBytes: peer.capBytes) else { continue }
+            if wireGuardDevices.setPaused(peer.id, true, reason: .cap) {
+                append("WireGuard: \(peer.name) reached its data cap for today, paused until tomorrow")
+                notifier.deviceCapped(peer.name)
+            }
+            wireGuardPeersChanged()
+        }
+    }
+
+    /// A new day starts with no cap reached: devices the cap paused come back.
+    private func liftCapPauses() {
+        var lifted = false
+        for peer in wireGuardPeers where peer.paused && peer.pauseReason == .cap {
+            if wireGuardDevices.setPaused(peer.id, false) { lifted = true }
+        }
+        if lifted {
+            wireGuardPeersChanged()
+            append("WireGuard: a new day, cap-paused devices are back")
+        }
+    }
+
+    private func notifyConnectionChanges(from old: Set<String>, to new: Set<String>) {
+        for address in new.subtracting(old) where notifyJoins {
+            if let peer = wireGuardPeers.first(where: { $0.address == address }) { notifier.deviceJoined(peer.name) }
+        }
+        for address in old.subtracting(new) where notifyLeaves {
+            if let peer = wireGuardPeers.first(where: { $0.address == address }) { notifier.deviceLeft(peer.name) }
+        }
+    }
+
+    /// The battery guard: warn once on the way down, stop sharing at the chosen level
+    /// while on battery, and stay stopped until the battery recovers or the person
+    /// resumes. Runs on the sampler (on screen) and the watcher (background).
+    private func checkBattery() {
+        updateBatteryMonitoring()
+        let threshold = batteryThresholdPercent
+        guard threshold > 0 else { batteryWarned = false; return }
+        let device = UIDevice.current
+        let level = device.batteryLevel
+        let charging = device.batteryState == .charging || device.batteryState == .full
+        if batteryBlocked || batteryOverride {
+            if batteryRecovered() {
+                let wasBlocked = batteryBlocked
+                batteryBlocked = false
+                batteryOverride = false
+                batteryWarned = false
+                append("battery recovered, the guard steps aside")
+                if wasBlocked { syncWithHotspot() }
+            }
+            return
+        }
+        if BatteryGuard.shouldWarn(level: level, isCharging: charging, thresholdPercent: threshold) {
+            if !batteryWarned {
+                batteryWarned = true
+                notifier.batteryWarning(percent: Int((level * 100).rounded()), threshold: threshold)
+            }
+        } else if level * 100 > Float(threshold + 10) {
+            batteryWarned = false
+        }
+        guard running, BatteryGuard.shouldStop(level: level, isCharging: charging, thresholdPercent: threshold) else { return }
+        batteryBlocked = true
+        wireGuard.stop()
+        running = false
+        keepAlive.stop()
+        append("battery at \(Int((level * 100).rounded()))%, the battery guard stopped sharing")
+        if notifyStopped {
+            notifier.sharingStopped(reason: "Battery fell to \(Int((level * 100).rounded()))%. Plug in, or resume in Tether.")
+        }
+        publishExternalState()
+    }
+
+    /// The battery is past the guard's stop level again: charging, or clear water above it.
+    private func batteryRecovered() -> Bool {
+        let device = UIDevice.current
+        return BatteryGuard.recovered(level: device.batteryLevel,
+                                      isCharging: device.batteryState == .charging || device.batteryState == .full,
+                                      thresholdPercent: batteryThresholdPercent)
+    }
+
+    /// The Resume button on the battery section: sharing starts again now, and the guard
+    /// stays out of the way until the battery recovers properly.
+    func resumeAfterBatteryGuard() {
+        batteryBlocked = false
+        batteryOverride = true
+        syncWithHotspot()
+    }
+
+    /// Battery levels only read while sharing or while the guard is on. Monitoring once
+    /// enabled is left on: it's the Diagnostics screen's battery row too.
+    private func updateBatteryMonitoring() {
+        if (running || batteryThresholdPercent > 0), !UIDevice.current.isBatteryMonitoringEnabled {
+            UIDevice.current.isBatteryMonitoringEnabled = true
+        }
+    }
+
+    /// The Live Activity and the widget snapshot follow the model from here, so every
+    /// caller (sampler, watcher, sync) publishes the same way.
+    private func publishExternalState() {
+        sharingActivity.update(sharing: sharing, connectedDevices: wireGuardConnected.count,
+                               downSpeed: downSpeed, upSpeed: upSpeed,
+                               usageToday: usage.todayTotal().total)
     }
 
     /// A device that connected with the QR code is listed, and the code changes for the next one.
@@ -280,11 +606,23 @@ final class Model: ObservableObject {
     }
 
     /// The watcher's check in the background, where the sampler doesn't run, so a device that
-    /// connects then is listed too and the next one gets a new code.
+    /// connects then is listed too and the next one gets a new code. The usage, guest, cap
+    /// and battery rules run here too, at the watcher's slower cadence: a cap or a guest
+    /// expiry shouldn't wait for the screen to come back.
     private func claimReadyInBackground() {
         guard running else { return }
         _ = wireGuard.snapshot() // refreshes connectedAddresses
+        let wasConnected = wireGuardConnected
+        wireGuardConnected = wireGuard.connectedAddresses
         claimReady(connected: wireGuard.connectedAddresses)
+        if wireGuardConnected != wasConnected { notifyConnectionChanges(from: wasConnected, to: wireGuardConnected) }
+        let now = Date()
+        recordUsage(now: now)
+        enforceAccess(now: now)
+        checkBattery()
+        UsageStore.save(usage)
+        lastUsageSave = now
+        publishExternalState()
     }
 
     /// The server's counters never go backwards. The guard is only a safety net.
@@ -309,6 +647,7 @@ final class Model: ObservableObject {
             model.sceneActive = false
             model.sampler?.cancel()
             model.lastSample = nil // or the first speed back on screen averages the whole time away
+            UsageStore.save(model.usage)
         }
         observe(UIApplication.didReceiveMemoryWarningNotification) { $0.wireGuard.freeMemory() }
     }
