@@ -130,12 +130,12 @@ struct MainView: View {
                 } header: {
                     Text("Settings")
                 } footer: {
-                    Text("Idle timeout: how long Tether keeps waiting after the hotspot goes before iOS suspends it. Battery guard stops sharing at the chosen level while on battery.")
+                    Text("Idle timeout: how long Ferry keeps waiting after the hotspot goes before iOS suspends it. Battery guard stops sharing at the chosen level while on battery.")
                 }
             }
             // The status card says what this screen is, so the root drops the big title. It's still set,
             // because the screens pushed from here use it for their back button.
-            .navigationTitle("Tether")
+            .navigationTitle("Ferry")
             .toolbar(.hidden, for: .navigationBar)
         }
     }
@@ -257,7 +257,7 @@ struct StatusCard: View {
 
     private var headline: String {
         switch model.wireGuardConnected.count {
-        case 0: return "Hotspot is on, no device is using Tether yet"
+        case 0: return "Hotspot is on, no device is using Ferry yet"
         case 1: return "Sharing with 1 device"
         case let n: return "Sharing with \(n) devices"
         }
@@ -276,7 +276,7 @@ struct StatusCard: View {
                         .offset(x: 6, y: 4)
                 }
                 .accessibilityHidden(true)
-            Text(sharing ? "Sharing" : model.running ? "Tether can't share yet" : "Turn on Personal Hotspot")
+            Text(sharing ? "Sharing" : model.running ? "Ferry can't share yet" : "Turn on Personal Hotspot")
                 .font(.title.bold())
                 .multilineTextAlignment(.center)
                 .accessibilityIdentifier("status.title")

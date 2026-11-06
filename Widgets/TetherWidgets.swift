@@ -2,7 +2,7 @@ import ActivityKit
 import SwiftUI
 import WidgetKit
 
-/// Tether's widgets: a home/lock screen widget with the sharing state, and the Live
+/// Ferry's widgets: a home/lock screen widget with the sharing state, and the Live
 /// Activity. Both draw from state the app publishes — the widget reads the shared
 /// snapshot (WidgetSnapshot.swift, compiled into both targets), the Live Activity gets
 /// its content state from the app directly. Nothing here runs the server or the model.
@@ -45,7 +45,7 @@ struct TetherStatusWidget: Widget {
         StaticConfiguration(kind: "TetherStatus", provider: SnapshotProvider()) { entry in
             StatusWidgetView(entry: entry)
         }
-        .configurationDisplayName("Tether")
+        .configurationDisplayName("Ferry")
         .description("Sharing status, connected devices and speeds.")
         .supportedFamilies([.systemSmall, .systemMedium])
     }
@@ -88,7 +88,7 @@ struct StatusWidgetView: View {
             // it) or the app hasn't run yet. Say what to do, nothing more.
             VStack(spacing: 6) {
                 Image(systemName: "link").font(.title2)
-                Text("Open Tether")
+                Text("Open Ferry")
                     .font(.headline)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -107,7 +107,7 @@ struct TetherLiveActivityWidget: Widget {
                     .font(.title2)
                     .foregroundStyle(context.state.isSharing ? .green : .orange)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(context.state.isSharing ? "Tether is sharing" : "Tether isn't sharing")
+                    Text(context.state.isSharing ? "Ferry is sharing" : "Ferry isn't sharing")
                         .font(.headline)
                     Text("\(context.state.connectedDevices == 1 ? "1 device" : "\(context.state.connectedDevices) devices") · ↓ \(Format.speed(context.state.downSpeed)) ↑ \(Format.speed(context.state.upSpeed))")
                         .font(.subheadline)
