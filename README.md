@@ -1,108 +1,166 @@
-# Tether
+<p align="center">
+  <img src="Sources/Assets.xcassets/AppIcon.appiconset/icon-1024.png" width="120" alt="Tether app icon">
+</p>
 
-Share your iPhone's internet with your iPad, Mac or travel router, even when your cellular plan blocks or slows down Personal Hotspot.
+<h1 align="center">Tether</h1>
 
-**Each device needs a WireGuard client.** The free WireGuard app works on an iPad, iPhone or Mac, and most travel routers (GL.iNet, UniFi Travel Router) have one built in. A device without WireGuard can still join the hotspot, but its traffic goes straight out as hotspot traffic and Tether doesn't help it.
+<p align="center">Share your iPhone's internet with an iPad, Mac or travel router over WireGuard | even when your cellular plan blocks or slows down Personal Hotspot.</p>
 
-<img src="Sources/Assets.xcassets/AppIcon.appiconset/icon-1024.png" width="96" alt="Tether icon">
+<p align="center">
+  <img src="https://img.shields.io/badge/Platform-iOS%2017%2B-0B7285" alt="Platform: iOS 17+">
+  <a href="https://github.com/c12n/tether/releases/latest"><img src="https://img.shields.io/github/v/release/c12n/tether?label=Latest%20release&color=0B7285" alt="Latest release"></a>
+  <a href="https://github.com/c12n/tether/releases"><img src="https://img.shields.io/github/downloads/c12n/tether/total?label=Downloads&color=0B7285" alt="Downloads"></a>
+  <img src="https://img.shields.io/github/license/c12n/tether?color=0B7285" alt="License: MIT">
+</p>
 
-<img src="docs/sharing.png" width="260" alt="Tether sharing with an iPad, with the speed and the list of devices"> <img src="docs/add-device.png" width="260" alt="Tether with the hotspot on and a QR code for the first device">
+<p align="center">
+  📥 <a href="https://github.com/c12n/tether/releases/latest"><b>Download v1.0.0</b></a> | 🧭 <a href="#-how-it-works"><b>How it works</b></a> | ❓ <a href="#-faq"><b>FAQ</b></a> | 🐛 <a href="https://github.com/c12n/tether/issues"><b>Report an issue</b></a>
+</p>
 
-## Why this works
+`v1.0.0` | First sideload release of this fork | the upstream app by Viktor Svirsky, packaged as an unsigned IPA you can sign and install yourself.
 
-Carriers can tell when traffic comes from a device that's connected to your hotspot, and some plans block it or slow it to a crawl. Traffic that comes from the phone itself is fine.
+> [!NOTE]
+> **Fork.** This repository is a fork of [viktor-svirsky/tether](https://github.com/viktor-svirsky/tether). The app is upstream's work; this fork sets a fork bundle ID (`com.c12n.tether`), removes the upstream self-hosted CI, and builds an unsigned IPA on GitHub Actions. The original README is kept in this repo's history.
 
-Tether is a small app that runs on your iPhone. Your iPad, Mac or travel router still joins the hotspot, but instead of sending its traffic straight out, its WireGuard client hands it to Tether. Tether makes the connections itself, so they leave from the iPhone like its own traffic.
+---
 
-```
-iPad, Mac or router  ──hotspot──▶  Tether on iPhone  ──cellular──▶  internet
-(WireGuard client)
-```
+## 📱 Screenshots
 
-Under the hood Tether runs a WireGuard server on UDP port 51820, on the hotspot address `172.20.10.1`. Each device connects with its WireGuard client, and everything goes through, calls and games included. WireGuard's own code decrypts the traffic and a small TCP/IP stack inside Tether ([gVisor](https://gvisor.dev)) makes each connection again from the iPhone. UDP behaves like a full-cone NAT, so calls and games can connect directly. No VPN entitlement or network extension is needed on the iPhone.
+| ![Tether sharing with an iPad](docs/sharing.png) | ![Tether with the hotspot on and a QR code for the first device](docs/add-device.png) |
+| :---: | :---: |
+| **Sharing with an iPad, with live speeds and the device list** | **Hotspot on, with a QR code ready for the next device** |
 
-## Install Tether on your iPhone
+---
 
-You need an iPhone with Personal Hotspot, and a Mac with Xcode. A free Apple ID is enough.
+## 🌟 Features
 
-1. Install [XcodeGen](https://github.com/yonaskolb/XcodeGen) and Go (`brew install xcodegen go`). `xcodegen generate` builds the WireGuard part with Go first, see `scripts/build-wireguard.sh`.
-2. Open `project.yml` and set `DEVELOPMENT_TEAM` to your own team ID, and `APP_BUNDLE_ID` to something unique like `com.yourname.tether`. You'll find your team ID in Xcode under Settings > Accounts.
-3. Build and install:
+| **Sharing that looks like phone traffic**<br>Carriers can tell when traffic comes from a hotspot client, and some plans block it or slow it to a crawl. Tether makes the connections itself, so shared traffic leaves from the iPhone like the phone's own traffic. | **Pairing by QR code**<br>The main screen always shows a QR code for the next device. Scan it with the free WireGuard app, and the device appears in the list by itself the first time it connects. |
+| :--- | :--- |
+| **One key per device**<br>Every iPad, Mac or router gets its own WireGuard key. Removing a device in Tether locks that device out without touching the others, and renaming a device is one tap on its name. | **Everything passes through**<br>Calls and games included. WireGuard's own code decrypts the traffic and a small TCP/IP stack inside Tether makes each connection again from the iPhone. UDP behaves like a full cone NAT, so peer to peer apps can connect directly. |
+| **Travel routers welcome**<br>GL.iNet, UniFi Travel Router and similar routers can join as one WireGuard client, and every device behind the router shares through it. Tether notices router client traffic by itself and lets it through. | **Start it from Shortcuts**<br>Two actions with nothing to set up: **Start Tether** wakes the app in the background, and **Is Tether Sharing?** answers true or false for an If. Ask Siri, use Spotlight, or put a "Hotspot" shortcut on the Action button. |
+| **Stays alive in the background**<br>Tether plays silent audio so iOS does not suspend it while you share. It mixes with other audio, so your music keeps playing, and it picks up again after a call or Siri. With no device on the hotspot for 10 minutes it stops to save battery. | **Private by design**<br>Tether only listens on the hotspot network, never on other Wi-Fi. There are no accounts, no analytics and no telemetry, and your device keys stay on the iPhone. |
+| **Your iPhone VPN covers your devices**<br>Devices reach whatever the iPhone reaches, private networks included. If the iPhone runs a VPN, shared traffic goes through that VPN too. | **No VPN entitlement, no jailbreak**<br>Tether is a normal app with a WireGuard server inside it. It needs no network extension entitlement and no jailbreak, which is also why it can be sideloaded with a free Apple ID. |
 
-   ```sh
-   xcodegen generate
-   xcodebuild build -project Tether.xcodeproj -scheme Tether \
-     -destination "id=<your-iphone-udid>" -derivedDataPath .build-dd -allowProvisioningUpdates
-   xcrun devicectl device install app --device <your-iphone-udid> \
-     .build-dd/Build/Products/Debug-iphoneos/Tether.app
-   ```
+---
 
-   `xcrun devicectl list devices` shows your iPhone's UDID.
-
-   If Tether is already on the iPhone, build it with the same bundle ID, or a second Tether installs next to it with new keys and every device has to be added again. `xcrun devicectl device info apps --device <your-iphone-udid>` shows the installed one, and `APP_BUNDLE_ID=<that id>` at the end of the `xcodebuild` line uses it.
-4. The first time, iOS won't open the app until you trust your developer certificate: Settings > General > VPN & Device Management > your Apple ID > Trust.
-5. Open Tether. It waits for Personal Hotspot and starts by itself when the hotspot is on. You can leave it in the background.
-
-## Connect a device with WireGuard
-
-This works for an iPad, an iPhone, a Mac or a travel router. Everything goes through, calls and games too, and nothing changes on other Wi-Fi.
-
-Tether's main screen always shows a QR code for the next device, with the steps under it. There is no button to press. Tether has already made a key for that code. The first time a device connects with it, the device shows up in the Devices list by itself, as Device, Device 2 and so on, and the code changes to a new one for the next device. Tap a device to see if it is connected, remove it, or tap its name at the top to rename it.
-
-- **iPad or iPhone:** install the free [WireGuard](https://apps.apple.com/app/id1441195209) app, then + > Create from QR code and scan the code on Tether's screen. Edit the tunnel and turn On-Demand on for Wi-Fi, only for your iPhone's hotspot name, then join the hotspot. The tunnel turns itself on at the hotspot and off everywhere else.
-- **Mac:** the same, but use "Share as a file, for a Mac or a router" under the code (AirDrop works) and Import Tunnel(s) from File, since a Mac can't scan the iPhone's screen.
-- **Travel router** (a UniFi Travel Router, a GL.iNet): add a WireGuard client in the router's VPN settings from the shared file, connect the router to the iPhone by USB or the hotspot, and turn its VPN on. Some routers send their clients' traffic from the clients' own addresses instead of their tunnel address. Tether notices that by itself and lets the router's clients through, and its traffic covers every device behind it. On other networks, turn the router's VPN off.
-
-Each device has its own key. Removing a device in Tether locks it out without touching the others.
-
-## Start it from Shortcuts
-
-Once no device has been on the hotspot for 10 minutes, iOS suspends Tether, and it has to be opened again before the hotspot comes back. Shortcuts can do that for you. Tether adds two actions to the Shortcuts app, with nothing to set up:
-
-- **Start Tether** wakes Tether in the background, the same as opening it, but it stays off the screen. It shares as soon as a device joins Personal Hotspot in the next 10 minutes. (iOS only makes the hotspot's network while a device is on it, so that's when Tether can see it.)
-- **Is Tether Sharing?** says whether Tether is sharing and how many devices are connected. It gives true or false, for an If.
-
-You can also say "Start Tether" to Siri, find it in Spotlight, or put it on the Action button.
-
-iOS has no automation for "Personal Hotspot turned on", so let one shortcut turn on both:
-
-1. In Shortcuts, make a new shortcut named **Hotspot** with two actions: **Set Personal Hotspot** set to On, then **Start Tether**.
-2. Run it instead of turning on the hotspot in Settings: from the Action button, a widget, or Siri ("Hotspot").
-3. To have it run by itself, add an automation in Shortcuts > Automation that runs Hotspot and is set to Run Immediately. For example, when your car's Bluetooth connects, when you arrive somewhere you share from, or at a time of day.
-
-## Good to know
-
-- **It stops opening after 7 days** when signed with a free Apple ID. Tether says on its main screen when it has three days or less left. Build and install it again (step 3 above) before then. Your devices and settings stay.
-- **Keep it running.** Tether plays silent audio so iOS doesn't suspend it in the background. It mixes with other audio, so your music keeps playing, and it picks up again after a call or Siri. With no device on the hotspot for 10 minutes it stops, to save battery, and iOS suspends Tether. Open it again, or run Start Tether, before you turn the hotspot back on, and after a restart.
-- **It only listens on the hotspot**, never on other Wi-Fi networks. WireGuard only lets in devices you added.
-- **Devices reach what the iPhone reaches**, private networks included. With a VPN on the iPhone, your devices use it too, so its networks are open to them and to everyone behind a travel router you added.
-- **The main screen** shows whether Tether is sharing, the QR code for the next device, your devices with Connected or Not connected, and the current download and upload speed. To stop sharing, turn off Personal Hotspot.
-- **The traffic leaves as your iPhone's.** If your iPhone runs a VPN, shared traffic goes through that VPN too.
-- **Your carrier can still notice.** Tether hides where the traffic comes from, not what it is. A Mac's software updates or an iPad's apps still look like a Mac or an iPad to a carrier that looks closely. Many carrier contracts don't allow tethering workarounds, and a carrier can slow down or close a line that breaks them. Check yours. Using Tether is your call and your risk.
-- **Not for the App Store.** Apple doesn't allow the silent-audio trick, so you build and install Tether yourself.
-
-## For developers
+## 🧭 How It Works
 
 ```
-Sources/WireGuardServer.swift  runs the WireGuard server; WireGuardSetup.swift has the keys and configs
-WireGuard/                   the WireGuard server in Go: wireguard-go plus a gVisor TCP/IP stack
-scripts/build-wireguard.sh   builds WireGuard/ into TetherWG.xcframework (xcodegen runs it)
-Sources/Model.swift          finds the hotspot, starts the server, samples traffic, feeds the screens
-Sources/MainView.swift       the main screen; DevicesView.swift has the QR code and the device screen
-Sources/KeepAlive.swift      silent audio to stay alive in the background
-Sources/Shortcuts.swift      the Start Tether and Is Tether Sharing? actions for Shortcuts and Siri
-Sources/DemoMode.swift       fake app states for the UI tests (Debug builds only)
-Tests/                       unit tests, run on the Mac
-UITests/                     UI tests for every screen, run on the iOS Simulator
-scripts/make-icon.swift      draws the app icon
+iPad, Mac or router  --hotspot-->  Tether on iPhone  --cellular-->  internet
+   (WireGuard client)
 ```
 
-The file map at the top of Model.swift lists every source file.
+Tether runs a WireGuard server on UDP port 51820 on the hotspot address `172.20.10.1`. A client device still joins your Personal Hotspot, but instead of sending its traffic straight out, its WireGuard client hands the traffic to Tether. The WireGuard server is built from wireguard-go with a gVisor TCP/IP stack, and Tether re-originates every connection from the iPhone itself.
 
-Run the unit tests with `swift test` (after `scripts/build-wireguard.sh` or `xcodegen generate`, since they link the WireGuard server), and the WireGuard server's own with `go -C WireGuard test ./...`. They start the real server on your Mac and talk to it over loopback, so you don't need a device. [TESTING.md](TESTING.md) covers the simulator UI tests and the checks by hand.
+---
 
-## License
+## 📋 Requirements
 
-MIT, see [LICENSE](LICENSE).
+- An iPhone with Personal Hotspot and a cellular data plan, running iOS 17 or later
+- A WireGuard client on each device you want to share with | the free WireGuard app on iPad, iPhone or Mac, or the built-in client on most travel routers
+- A sideloading tool (SideStore, AltStore, Feather or Sideloadly) or a Mac with Xcode to install the app
 
-The WireGuard server is built from [wireguard-go](https://git.zx2c4.com/wireguard-go) (MIT), [gVisor](https://gvisor.dev) (Apache 2.0) and Go's `golang.org/x` packages (BSD). `WireGuard/go.mod` pins their versions, and Go downloads each one with its license. A built Tether app contains their code, so if you give a build to someone, include their licenses with it.
+---
+
+## 🚀 Installation
+
+### iOS
+
+**Sideload**
+
+1. Download `Tether.ipa` from the [latest release](https://github.com/c12n/tether/releases/latest).
+2. Install it with SideStore, AltStore, Feather or Sideloadly, signed with your own Apple ID.
+3. The first time, trust your developer certificate: Settings, then General, then VPN and Device Management, then your Apple ID, then Trust.
+4. Open Tether. It waits for Personal Hotspot and starts by itself when the hotspot is on. You can leave it in the background.
+
+> [!TIP]
+> Signed with a free Apple ID, the app stops opening after 7 days. Tether warns you on its main screen when three days or less are left. Reinstall the IPA before then; your devices and settings stay.
+
+**Build it yourself**
+
+1. Install XcodeGen and Go: `brew install xcodegen go`.
+2. Open `project.yml` and set `DEVELOPMENT_TEAM` to your own team ID, and `APP_BUNDLE_ID` to something unique like `com.yourname.tether`.
+3. Run `xcodegen generate`, then build and install with `xcodebuild` and `xcrun devicectl` as described in the upstream README history.
+
+---
+
+## 🔗 Connect a Device
+
+- **iPad or iPhone:** install the free WireGuard app, tap +, then Create from QR code, and scan the code on Tether's screen. Edit the tunnel and turn On-Demand on for Wi-Fi, only for your iPhone's hotspot name, then join the hotspot. The tunnel turns itself on at the hotspot and off everywhere else.
+- **Mac:** use "Share as a file, for a Mac or a router" under the code (AirDrop works) and Import Tunnel(s) from File, since a Mac cannot scan the iPhone's screen.
+- **Travel router:** add a WireGuard client in the router's VPN settings from the shared file, connect the router to the iPhone by USB or the hotspot, and turn its VPN on. On other networks, turn the router's VPN off.
+
+---
+
+## 🗺️ Roadmap
+
+**v1.1.0 | in development**
+
+- Per-device data usage with daily caps that pause a device when it hits its limit
+- A Live Activity and a Home Screen widget with sharing status, device count and live speeds
+- Guest devices that expire after 1 hour, 4 hours or 24 hours, plus pause and resume for any device
+- Notifications when a device joins or leaves, and an alert if sharing stops unexpectedly
+- Richer device details | last handshake, per-device speed, last seen, and device type icons
+- An adjustable idle timeout | 5, 10 or 30 minutes, or never
+- A speed history graph for the current sharing session
+- A diagnostics screen with a shareable log
+- A battery guard that can stop sharing at a level you choose
+
+---
+
+## ⚠️ Known Issues
+
+- **Free profile expiry:** signed with a free Apple ID, the app stops opening after 7 days. Reinstalling the IPA restarts the week, and your paired devices survive.
+- **Idle suspension:** once no device has been on the hotspot for 10 minutes, iOS suspends Tether. Open it again, or run **Start Tether**, before turning the hotspot back on, and after a restart.
+- **Your carrier can still notice:** Tether hides where the traffic comes from, not what it is. A Mac's software updates or an iPad's apps still look like a Mac or an iPad to a carrier that looks closely. Many carrier contracts do not allow tethering workarounds, and a carrier can slow down or close a line that breaks them. Check yours. Using Tether is your call and your risk.
+- **Not for the App Store:** Apple does not allow the silent audio keep-alive trick, so Tether is distributed as a sideload build only.
+
+---
+
+## ❓ FAQ
+
+**Is it free?**
+Yes | free and open source under the MIT license, with no ads and no in-app purchases.
+
+**Does each device need an app?**
+Yes | each iPad, Mac or router needs a WireGuard client. A device without one can still join the hotspot, but its traffic goes straight out as hotspot traffic and Tether does not help it.
+
+**Does it need a jailbreak or a VPN entitlement?**
+No. Tether is a regular app that runs its own WireGuard server in its own process. Nothing about it needs a jailbreak, and it never touches the system VPN settings.
+
+**Why does it play silent audio?**
+That is how it stays alive in the background. The audio is silent, it mixes with your music, and it stops when sharing has been idle for 10 minutes.
+
+**Does it work while my iPhone is on Wi-Fi?**
+No | Tether shares the iPhone's cellular connection through Personal Hotspot. It only listens on the hotspot network.
+
+**Does it collect my data?**
+No accounts, no analytics, no tracking. See the Privacy section below.
+
+---
+
+## 🔒 Privacy
+
+- Tether only listens on the hotspot interface, never on other Wi-Fi networks, and WireGuard only lets in devices you have added.
+- Pairing keys are generated on the iPhone and stay on the iPhone.
+- The app has no accounts, no analytics and no telemetry. The only network traffic it handles is the traffic your own devices ask it to forward.
+
+---
+
+## 🛠️ Built With
+
+- SwiftUI and App Intents | the app, its screens and its Shortcuts actions
+- wireguard-go (MIT) and gVisor (Apache 2.0) | the WireGuard server and its TCP/IP stack, built with Go
+- XcodeGen | the Xcode project is generated from `project.yml`
+- GitHub Actions | this fork's unsigned IPA is built on a hosted macOS runner
+
+## 🙏 Credits
+
+- **Viktor Svirsky** | creator of Tether. Upstream: [viktor-svirsky/tether](https://github.com/viktor-svirsky/tether)
+- **c12n** | this fork's bundle ID, CI and sideload packaging
+
+## 📄 License
+
+MIT | see [LICENSE](LICENSE). Copyright (c) 2026 Viktor Svirsky.
+
+The WireGuard server is built from wireguard-go (MIT), gVisor (Apache 2.0) and Go's `golang.org/x` packages (BSD). A built Tether app contains their code, so if you give a build to someone, include their licenses with it.
