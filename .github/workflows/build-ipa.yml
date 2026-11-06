@@ -69,7 +69,10 @@ jobs:
           /usr/libexec/PlistBuddy -c "Print :CFBundleVersion" "$APP/Info.plist"
           /usr/libexec/PlistBuddy -c "Print :CFBundleExecutable" "$APP/Info.plist"
           test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP/Info.plist")" = "com.c12n.tether"
-          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Info.plist")" = "1.0"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Info.plist")" = "1.1.0"
+          test -d "$APP/PlugIns/TetherWidgets.appex" || { echo "TetherWidgets.appex missing from the app bundle"; ls -R "$APP"; exit 1; }
+          /usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$APP/PlugIns/TetherWidgets.appex/Info.plist"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP/PlugIns/TetherWidgets.appex/Info.plist")" = "com.c12n.tether.widgets"
           ls -lh "$APP/Tether"
 
       - name: Package IPA
