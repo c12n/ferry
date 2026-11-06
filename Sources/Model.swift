@@ -17,7 +17,7 @@
 //   Shortcuts.swift     the Shortcuts actions; ShortcutReply.swift has what they say, Foundation only
 //   WireGuardSetup.swift  the hotspot address, WireGuard keys, devices and client configs, Foundation only
 //   WireGuardServer.swift  runs the WireGuard server (WireGuard/, Go)
-//   KeepAlive.swift, KeepAlivePolicy.swift  the silent sound that keeps Tether running
+//   KeepAlive.swift, KeepAlivePolicy.swift  the silent sound that keeps Ferry running
 
 import OSLog
 import SwiftUI
@@ -25,7 +25,7 @@ import UIKit
 
 @MainActor
 final class Model: ObservableObject {
-    /// The screen and the Shortcuts actions share it. An action can launch Tether in the
+    /// The screen and the Shortcuts actions share it. An action can launch Ferry in the
     /// background, with no screen, and this is all that runs then.
     static let shared = Model()
 
@@ -35,7 +35,7 @@ final class Model: ObservableObject {
     @Published var upSpeed = 0.0
     /// When this build stops opening, from its provisioning profile. Nil without one.
     var expires: Date? = AppExpiry.installed { didSet { refreshExpiryWarning() } }
-    /// "Tether stops opening in 2 days ...", in the last three days before `expires`. Refreshed by
+    /// "Ferry stops opening in 2 days ...", in the last three days before `expires`. Refreshed by
     /// the 1 s sampler, so it appears on time even on a screen where nothing else changes.
     @Published private(set) var expiryWarning: String?
     /// The devices that have connected, in the order they first did. Their keys are in the Keychain.
@@ -56,7 +56,7 @@ final class Model: ObservableObject {
     /// From the same readings as the usage; a quiet device reads zero.
     @Published private(set) var deviceSpeeds: [String: (down: Double, up: Double)] = [:]
     /// When each device last handshaked, by device key. Nil for a device that never has
-    /// in any run Tether has seen.
+    /// in any run Ferry has seen.
     @Published private(set) var deviceHandshakes: [String: Date] = [:]
     /// When each device was last seen — a handshake or traffic, whichever is later.
     @Published private(set) var deviceLastSeen: [String: Date] = [:]
@@ -145,7 +145,7 @@ final class Model: ObservableObject {
             return // no server, keep-alive audio, watcher, sampler or scene observers
         }
         #endif
-        // Guests whose time ran out while Tether was closed are removed before anything
+        // Guests whose time ran out while Ferry was closed are removed before anything
         // starts, so their keys never work again.
         for peer in wireGuardDevices.setup.expiredPeers(now: Date()) {
             usage.forget(Self.key(for: peer))
@@ -189,9 +189,9 @@ final class Model: ObservableObject {
     }
 
     private var watcher: Task<Void, Never>?
-    /// When the hotspot went away, or Tether was last on screen since. Nil while the hotspot is on.
-    /// A launch starts long past, so only opening Tether or Start Tether (`wake`) gives it the
-    /// idle timeout. "Is Tether Sharing?" launches Tether in the background too, and only reports.
+    /// When the hotspot went away, or Ferry was last on screen since. Nil while the hotspot is on.
+    /// A launch starts long past, so only opening Ferry or Start Ferry (`wake`) gives it the
+    /// idle timeout. "Is Ferry Sharing?" launches Ferry in the background too, and only reports.
     private var waitingSince: Date? = .distantPast
     private var sampler: Task<Void, Never>?
     private var lastSample: (up: UInt64, down: UInt64, at: Date)?
@@ -259,14 +259,14 @@ final class Model: ObservableObject {
     }
 
     /// Plays the silent sound while the hotspot is on, and for a while after it goes, see
-    /// `KeepAlivePolicy`. Once it stops, iOS suspends Tether, and it starts again when opened.
+    /// `KeepAlivePolicy`. Once it stops, iOS suspends Ferry, and it starts again when opened.
     private func keepAliveWhileSharing(hotspot: Bool, now: Date = Date()) {
         // On screen the wait keeps starting again, so the sound never stops there, and the 10 minutes
         // run from leaving the screen, to turn on Personal Hotspot in Settings, say.
         if hotspot { waitingSince = nil } else if sceneActive || waitingSince == nil { waitingSince = now }
         let plays = KeepAlivePolicy.plays(waitingSince: waitingSince, now: now, idleLimit: idleLimit)
         if plays { keepAlive.start() } else if keepAlive.playing {
-            append("no hotspot for \(idleTimeoutMinutes) minutes, letting iOS suspend Tether until it's opened")
+            append("no hotspot for \(idleTimeoutMinutes) minutes, letting iOS suspend Ferry until it's opened")
             keepAlive.stop()
         }
     }
@@ -299,9 +299,9 @@ final class Model: ObservableObject {
         append("WireGuard not started: \(error)")
     }
 
-    /// The same as opening Tether, for Start Tether in Shortcuts: the 10 minutes' wait for the hotspot
+    /// The same as opening Ferry, for Start Ferry in Shortcuts: the 10 minutes' wait for the hotspot
     /// starts again, and sharing starts now if the hotspot is on. True when the silent sound plays,
-    /// so iOS keeps Tether running after the action ends.
+    /// so iOS keeps Ferry running after the action ends.
     @discardableResult
     func wake() -> Bool {
         #if DEBUG
@@ -333,7 +333,7 @@ final class Model: ObservableObject {
         if running, let boundHost { startWireGuard(on: boundHost) }
     }
 
-    /// Only the name Tether shows changes. The tunnel already imported keeps its own name.
+    /// Only the name Ferry shows changes. The tunnel already imported keeps its own name.
     func renameWireGuardDevice(_ id: WireGuardSetup.Peer.ID, to name: String) {
         if !wireGuardDevices.rename(id, to: name) { append("WireGuard: the new name couldn't be saved") }
         publishSetup()
@@ -559,7 +559,7 @@ final class Model: ObservableObject {
         keepAlive.stop()
         append("battery at \(Int((level * 100).rounded()))%, the battery guard stopped sharing")
         if notifyStopped {
-            notifier.sharingStopped(reason: "Battery fell to \(Int((level * 100).rounded()))%. Plug in, or resume in Tether.")
+            notifier.sharingStopped(reason: "Battery fell to \(Int((level * 100).rounded()))%. Plug in, or resume in Ferry.")
         }
         publishExternalState()
     }
@@ -639,7 +639,7 @@ final class Model: ObservableObject {
         }
         observe(UIApplication.didBecomeActiveNotification) { model in
             model.sceneActive = true
-            // Opening Tether starts the wait again, so there's time to turn on Personal Hotspot in Settings.
+            // Opening Ferry starts the wait again, so there's time to turn on Personal Hotspot in Settings.
             model.wake()
             model.startSampler() // samples at once, then every second again
         }
