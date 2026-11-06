@@ -63,9 +63,15 @@ struct MainView: View {
                                         Text(peer.name)
                                         let caption = deviceCaption(peer, model: model)
                                         if !caption.isEmpty {
-                                            Text(caption)
-                                                .font(.caption)
-                                                .foregroundStyle(peer.paused ? .orange : .secondary)
+                                            if peer.paused {
+                                                Text(caption)
+                                                    .font(.caption)
+                                                    .foregroundStyle(.orange)
+                                            } else {
+                                                Text(caption)
+                                                    .font(.caption)
+                                                    .foregroundStyle(.secondary)
+                                            }
                                         }
                                     }
                                     Spacer()
