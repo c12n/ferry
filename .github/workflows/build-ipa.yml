@@ -69,7 +69,7 @@ jobs:
           /usr/libexec/PlistBuddy -c "Print :CFBundleVersion" "$APP/Info.plist"
           /usr/libexec/PlistBuddy -c "Print :CFBundleExecutable" "$APP/Info.plist"
           test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP/Info.plist")" = "com.c12n.tether"
-          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Info.plist")" = "1.1.0"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Info.plist")" = "1.1.1"
           test -d "$APP/PlugIns/TetherWidgets.appex" || { echo "TetherWidgets.appex missing from the app bundle"; ls -R "$APP"; exit 1; }
           /usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$APP/PlugIns/TetherWidgets.appex/Info.plist"
           test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP/PlugIns/TetherWidgets.appex/Info.plist")" = "com.c12n.tether.widgets"
@@ -78,16 +78,16 @@ jobs:
       - name: Package IPA
         run: |
           APP="$RUNNER_TEMP/dd/Build/Products/Release-iphoneos/Tether.app"
-          rm -rf "$RUNNER_TEMP/staging" Tether.ipa
+          rm -rf "$RUNNER_TEMP/staging" Ferry.ipa
           mkdir -p "$RUNNER_TEMP/staging/Payload"
           cp -R "$APP" "$RUNNER_TEMP/staging/Payload/Tether.app"
-          (cd "$RUNNER_TEMP/staging" && zip -qry "$GITHUB_WORKSPACE/Tether.ipa" Payload)
-          ls -lh Tether.ipa
-          shasum -a 256 Tether.ipa
-          unzip -l Tether.ipa | head -40
+          (cd "$RUNNER_TEMP/staging" && zip -qry "$GITHUB_WORKSPACE/Ferry.ipa" Payload)
+          ls -lh Ferry.ipa
+          shasum -a 256 Ferry.ipa
+          unzip -l Ferry.ipa | head -40
 
       - uses: actions/upload-artifact@v4
         with:
-          name: Tether-ipa
-          path: Tether.ipa
+          name: Ferry-ipa
+          path: Ferry.ipa
           if-no-files-found: error
