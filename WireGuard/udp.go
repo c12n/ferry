@@ -151,7 +151,7 @@ func (s *Server) send(c *cone) {
 		case <-c.done:
 			return
 		}
-		s.count(true, len(o.payload))
+		s.countPeer(c.owner, true, len(o.payload))
 		if _, err := c.conn.WriteToUDPAddrPort(o.payload, s.toNet(o.dst)); err == nil {
 			c.last.Store(time.Now().UnixNano())
 		}
@@ -176,7 +176,7 @@ func (s *Server) receive(c *cone) {
 		if !src.Addr().Is4() {
 			continue
 		}
-		s.count(false, n)
+		s.countPeer(c.owner, false, n)
 		packets := replyPackets(src, c.device, buf[:n], s.nextID())
 		s.mu.Lock()
 		select {

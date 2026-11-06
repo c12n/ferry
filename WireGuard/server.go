@@ -16,6 +16,7 @@ import (
 	"net/netip"
 	"os"
 	"runtime/debug"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -113,6 +114,26 @@ type Stats struct {
 	// Connected holds the tunnel addresses with a recent handshake, so the app can say which
 	// WireGuard device is set up and working, also before it sent any traffic.
 	Connected []string `json:"connected"`
+	// Peers holds the byte totals per device (tunnel address), so the app can show each
+	// device's usage and enforce per-device data caps. Sorted by address.
+	Peers []PeerStats `json:"peers"`
+}
+
+// PeerStats is one device's byte totals. Up is what the device sent out through Tether,
+// Down what came back to it: the same directions as Stats.Up and Stats.Down.
+type PeerStats struct {
+	Address string `json:"address"`
+	Up      uint64 `json:"up"`
+	Down    uint64 `json:"down"`
+	// Handshake is the device's latest WireGuard handshake, Unix seconds. 0 when it has
+	// never handshaked in this run.
+	Handshake int64 `json:"handshake"`
+}
+
+// peerCounter is one device's running totals. Atomic, like the server-wide ones: every
+// connection adds to them.
+type peerCounter struct {
+	up, down atomic.Uint64
 }
 
 type Server struct {
@@ -128,7 +149,10 @@ type Server struct {
 	// up and down are the byte totals. Atomic, since every read and write of every connection
 	// adds to them, and a lock there would make them all take turns.
 	up, down atomic.Uint64
-	now      func() time.Time // tests move the clock to age a handshake
+	// peerTraffic holds each device's totals, by tunnel address. A sync.Map with atomic
+	// counters, so the packet path never takes mu for counting, like the totals above.
+	peerTraffic sync.Map // netip.Addr -> *peerCounter
+	now         func() time.Time // tests move the clock to age a handshake
 
 	// The handshake refresher, and SetPeers, read wireguard-go's status. Nothing on the packet path
 	// does, since that would wait on wireguard-go's config lock, which Close and SetPeers hold
@@ -348,9 +372,19 @@ func (s *Server) noticeRouter(format string, args ...any) {
 func (s *Server) setPeersLocked(peers map[[32]byte]netip.Addr) {
 	s.peers = peers
 	s.names = make(map[string]netip.Addr, len(peers))
+	live := make(map[netip.Addr]bool, len(peers))
 	for key, addr := range peers {
 		s.names[peerName(key)] = addr
+		live[addr] = true
 	}
+	// A device that's gone loses its counters with it, so its address going to a new device
+	// later doesn't hand the new one the old one's usage.
+	s.peerTraffic.Range(func(addr, _ any) bool {
+		if !live[addr.(netip.Addr)] {
+			s.peerTraffic.Delete(addr)
+		}
+		return true
+	})
 }
 
 // peerName is how wireguard-go names a peer in its log: the start and end of its public key.
@@ -422,12 +456,29 @@ func (s *Server) apply(want map[[32]byte]netip.Addr, router netip.Addr) error {
 func (s *Server) Stats() Stats {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	st := Stats{Up: s.up.Load(), Down: s.down.Load(), Connected: []string{}}
+	st := Stats{Up: s.up.Load(), Down: s.down.Load(), Connected: []string{}, Peers: []PeerStats{}}
 	for addr, at := range s.shaken {
 		if s.now().Sub(at) < onlineWithin {
 			st.Connected = append(st.Connected, addr.String())
 		}
 	}
+	seen := map[netip.Addr]bool{}
+	for _, addr := range s.peers {
+		if seen[addr] {
+			continue
+		}
+		seen[addr] = true
+		ps := PeerStats{Address: addr.String()}
+		if c, ok := s.peerTraffic.Load(addr); ok {
+			counter := c.(*peerCounter)
+			ps.Up, ps.Down = counter.up.Load(), counter.down.Load()
+		}
+		if at, ok := s.shaken[addr]; ok {
+			ps.Handshake = at.Unix()
+		}
+		st.Peers = append(st.Peers, ps)
+	}
+	sort.Slice(st.Peers, func(i, j int) bool { return st.Peers[i].Address < st.Peers[j].Address })
 	return st
 }
 
@@ -566,6 +617,22 @@ func (s *Server) count(up bool, n int) {
 	}
 }
 
+// countPeer adds n bytes to a device's own totals, and to the server's. device is the tunnel
+// address whose traffic it is: the device itself, or the router for a device behind it.
+func (s *Server) countPeer(device netip.Addr, up bool, n int) {
+	s.count(up, n)
+	if n <= 0 || !device.IsValid() {
+		return
+	}
+	c, _ := s.peerTraffic.LoadOrStore(device, &peerCounter{})
+	counter := c.(*peerCounter)
+	if up {
+		counter.up.Add(uint64(n))
+	} else {
+		counter.down.Add(uint64(n))
+	}
+}
+
 func addrPort(a tcpip.Address, port uint16) netip.AddrPort {
 	ip, _ := netip.AddrFromSlice(a.AsSlice())
 	return netip.AddrPortFrom(ip.Unmap(), port)
@@ -614,7 +681,7 @@ func (s *Server) forwardTCP(r *tcp.ForwarderRequest) {
 	// giving up, ends both, or the other direction could wait forever on a silent peer.
 	go func() {
 		defer wg.Done()
-		if err := s.copy(out, in, true); err != io.EOF {
+		if err := s.copy(out, in, true, device); err != io.EOF {
 			closeBoth()
 		} else if c, ok := out.(interface{ CloseWrite() error }); ok {
 			c.CloseWrite()
@@ -622,7 +689,7 @@ func (s *Server) forwardTCP(r *tcp.ForwarderRequest) {
 	}()
 	go func() {
 		defer wg.Done()
-		if err := s.copy(in, out, false); err != io.EOF {
+		if err := s.copy(in, out, false, device); err != io.EOF {
 			closeBoth()
 		} else {
 			in.CloseWrite()
@@ -632,14 +699,14 @@ func (s *Server) forwardTCP(r *tcp.ForwarderRequest) {
 	closeBoth()
 }
 
-// copy moves one direction of a TCP connection and counts it, until an error. A clean end
-// returns io.EOF.
-func (s *Server) copy(dst io.Writer, src io.Reader, up bool) error {
+// copy moves one direction of a TCP connection and counts it (to the server's totals and
+// the device's), until an error. A clean end returns io.EOF.
+func (s *Server) copy(dst io.Writer, src io.Reader, up bool, device netip.Addr) error {
 	buf := make([]byte, 65536)
 	for {
 		n, err := src.Read(buf)
 		if n > 0 {
-			s.count(up, n)
+			s.countPeer(device, up, n)
 			if _, werr := dst.Write(buf[:n]); werr != nil {
 				return werr
 			}
