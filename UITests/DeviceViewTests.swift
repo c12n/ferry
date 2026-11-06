@@ -25,7 +25,7 @@ final class DeviceViewTests: TetherUITestCase {
     func testBackReturnsToTheMainScreen() {
         launch(.sharing)
         openDevice("iPad")
-        goBack(to: "Tether")
+        goBack(to: "Ferry")
         waitUntilHittable(element("status.title"))
         XCTAssertTrue(element("device.iPad").waitForExistence(timeout: 5))
     }
@@ -41,7 +41,7 @@ final class DeviceViewTests: TetherUITestCase {
         field.tap()
         field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: "MacBook".count) + "Work Mac\n")
         XCTAssertTrue(app.navigationBars["Work Mac"].waitForExistence(timeout: 5))
-        goBack(to: "Tether")
+        goBack(to: "Ferry")
         XCTAssertTrue(reveal(element("device.Work Mac")).exists)
         XCTAssertFalse(element("device.MacBook").exists)
     }
@@ -55,7 +55,7 @@ final class DeviceViewTests: TetherUITestCase {
         app.buttons["Cancel"].firstMatch.tap()
         waitUntilGone(app.buttons["Remove"].firstMatch)
         XCTAssertTrue(app.navigationBars["iPad"].exists, "still on the device's screen")
-        goBack(to: "Tether")
+        goBack(to: "Ferry")
         XCTAssertTrue(reveal(element("device.iPad")).exists)
         XCTAssertTrue(element("device.MacBook").exists)
     }

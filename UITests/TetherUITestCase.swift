@@ -15,7 +15,7 @@ class TetherUITestCase: XCTestCase {
         continueAfterFailure = false
     }
 
-    /// Launches Tether in a demo scenario, in English with US formats so every text is stable.
+    /// Launches Ferry in a demo scenario, in English with US formats so every text is stable.
     /// Pass `scenario: nil` for a normal launch.
     @discardableResult
     func launch(_ scenario: Scenario?, arguments: [String] = []) -> XCUIApplication {
@@ -185,7 +185,7 @@ class TetherUITestCase: XCTestCase {
 
     /// Toolbar buttons, drawn by the system in its own tint.
     static let systemButtons: Set<String> = ["Cancel", "Done"]
-    /// Tether's elements that use only `.secondary` text, the plain button tint or the system's red for a destructive button.
+    /// Ferry's elements that use only `.secondary` text, the plain button tint or the system's red for a destructive button.
     static let systemStyled: Set<String> = ["wireguard.reset", "device.remove", "add.steps"]
 
     /// The audit without contrast, for a screen that is scrolled (see `audit`).

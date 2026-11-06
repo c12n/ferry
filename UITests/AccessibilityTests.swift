@@ -67,7 +67,7 @@ final class AccessibilityTests: TetherUITestCase {
         try audit()
     }
 
-    /// The upload colour is Tether's own, so it gets a contrast check where it shows, in both appearances.
+    /// The upload colour is Ferry's own, so it gets a contrast check where it shows, in both appearances.
     func testTrafficSpeedsPassTheContrastAudit() throws {
         for appearance in [XCUIDevice.Appearance.light, .dark] {
             XCUIDevice.shared.appearance = appearance

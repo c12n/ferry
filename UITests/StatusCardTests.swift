@@ -20,14 +20,14 @@ final class StatusCardTests: TetherUITestCase {
     func testNoDevicesSaysNobodyUsesTetherYet() {
         launch(.noDevices)
         XCTAssertEqual(label(of: "status.title"), "Sharing")
-        XCTAssertEqual(label(of: "status.headline"), "Hotspot is on, no device is using Tether yet")
+        XCTAssertEqual(label(of: "status.headline"), "Hotspot is on, no device is using Ferry yet")
         XCTAssertFalse(element("status.howToConnect").exists, "the code is on the main screen, so nothing to open")
     }
 
     /// The hotspot is on but WireGuard can't start (keys locked after a restart), so nothing is shared.
     func testLockedKeysDontSaySharing() {
         launch(.wireGuardLocked)
-        XCTAssertEqual(label(of: "status.title"), "Tether can't share yet")
+        XCTAssertEqual(label(of: "status.title"), "Ferry can't share yet")
         XCTAssertEqual(label(of: "status.headline"), "Personal Hotspot is on, but WireGuard isn't running.")
         XCTAssertFalse(element("status.stopHint").exists)
         XCTAssertFalse(element("status.hotspotPath").exists, "the hotspot is already on")
@@ -36,7 +36,7 @@ final class StatusCardTests: TetherUITestCase {
     /// A sideloaded build stops opening when its 7-day profile runs out, so the main screen says so first.
     func testAnExpiringBuildSaysToRefreshIt() {
         launch(.expiring)
-        XCTAssertEqual(label(of: "app.expiry"), "Tether stops opening in 2 days. Install it again from Xcode.")
+        XCTAssertEqual(label(of: "app.expiry"), "Ferry stops opening in 2 days. Install it again from Xcode.")
     }
 
     func testNoExpiryWarningWithDaysToGo() {

@@ -169,8 +169,8 @@ final class WireGuardSetupTests: XCTestCase {
     }
 
     func testTheConfigFileNameIsSafe() {
-        XCTAssertEqual(WireGuardSetup.fileName(for: "Viktor's iPad"), "Tether-Viktor-s-iPad.conf")
-        XCTAssertEqual(WireGuardSetup.fileName(for: "///"), "Tether.conf")
+        XCTAssertEqual(WireGuardSetup.fileName(for: "Viktor's iPad"), "Ferry-Viktor-s-iPad.conf")
+        XCTAssertEqual(WireGuardSetup.fileName(for: "///"), "Ferry.conf")
     }
 
     func testItSurvivesARoundTrip() throws {
