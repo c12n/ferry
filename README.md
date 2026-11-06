@@ -14,8 +14,10 @@
 </p>
 
 <p align="center">
-  📥 <a href="https://github.com/c12n/tether/releases/latest"><b>Download v1.0.0</b></a> | 🧭 <a href="#-how-it-works"><b>How it works</b></a> | ❓ <a href="#-faq"><b>FAQ</b></a> | 🐛 <a href="https://github.com/c12n/tether/issues"><b>Report an issue</b></a>
+  📥 <a href="https://github.com/c12n/tether/releases/latest"><b>Download v1.1.0</b></a> | 🧭 <a href="#-how-it-works"><b>How it works</b></a> | ❓ <a href="#-faq"><b>FAQ</b></a> | 🐛 <a href="https://github.com/c12n/tether/issues"><b>Report an issue</b></a>
 </p>
+
+`v1.1.0` | Latest release | the upstream app by Viktor Svirsky, packaged as an unsigned IPA, plus this fork's additions: per-device usage and data caps, a Live Activity and widget, guest devices, notifications, a speed history graph, diagnostics and a battery guard.
 
 `v1.0.0` | First sideload release of this fork | the upstream app by Viktor Svirsky, packaged as an unsigned IPA you can sign and install yourself.
 
@@ -38,8 +40,12 @@
 | :--- | :--- |
 | **One key per device**<br>Every iPad, Mac or router gets its own WireGuard key. Removing a device in Tether locks that device out without touching the others, and renaming a device is one tap on its name. | **Everything passes through**<br>Calls and games included. WireGuard's own code decrypts the traffic and a small TCP/IP stack inside Tether makes each connection again from the iPhone. UDP behaves like a full cone NAT, so peer to peer apps can connect directly. |
 | **Works with any WireGuard device**<br>If it runs WireGuard, it can share through Tether: iPhone, iPad and Android phones and tablets, Mac and Windows computers, Linux machines, and routers with WireGuard built in or running OpenWrt, including GL.iNet and UniFi travel routers. A travel router joins as one client, and every device behind it shares through it too. Tether notices router client traffic by itself and lets it through. | **Start it from Shortcuts**<br>Two actions with nothing to set up: **Start Tether** wakes the app in the background, and **Is Tether Sharing?** answers true or false for an If. Ask Siri, use Spotlight, or put a "Hotspot" shortcut on the Action button. |
-| **Stays alive in the background**<br>Tether plays silent audio so iOS does not suspend it while you share. It mixes with other audio, so your music keeps playing, and it picks up again after a call or Siri. With no device on the hotspot for 10 minutes it stops to save battery. | **Private by design**<br>Tether only listens on the hotspot network, never on other Wi-Fi. There are no accounts, no analytics and no telemetry, and your device keys stay on the iPhone. |
+| **Stays alive in the background**<br>Tether plays silent audio so iOS does not suspend it while you share. It mixes with other audio, so your music keeps playing, and it picks up again after a call or Siri. With no device on the hotspot for your idle timeout (5, 10 or 30 minutes, or never; 10 by default) it stops to save battery. | **Private by design**<br>Tether only listens on the hotspot network, never on other Wi-Fi. There are no accounts, no analytics and no telemetry, and your device keys stay on the iPhone. |
 | **Your iPhone VPN covers your devices**<br>Devices reach whatever the iPhone reaches, private networks included. If the iPhone runs a VPN, shared traffic goes through that VPN too. | **No VPN entitlement, no jailbreak**<br>Tether is a normal app with a WireGuard server inside it. It needs no network extension entitlement and no jailbreak, which is also why it can be sideloaded with a free Apple ID. |
+| **Per-device usage and data caps**<br>Every device shows what it has used this session, today and all time, right in the device list and on its detail screen. Set a daily cap per device (500 MB to 10 GB) and that device pauses by itself when it hits the cap, then comes back the next day. | **Live Activity and widget**<br>Sharing status, connected devices, live download and upload speeds and today's usage on the Lock Screen and in the Dynamic Island, plus a Home Screen widget. If a re-sign breaks the App Group, the widget falls back to an "Open Tether" placeholder instead of failing. |
+| **Guest devices, pause and resume**<br>Make any device a guest for 1 hour, 4 hours or 24 hours and it is removed by itself when the time is up, key and all. Pause any device to cut it off without removing it, and resume it whenever you like. | **Notifications**<br>Get told when a device connects or disconnects, when a device hits its data cap, when sharing stops on its own, and when the battery guard is about to act. Each kind can be turned off in Settings. |
+| **Richer device details**<br>Each device shows its last WireGuard handshake, when it was last seen, and its own live speed, and you can tag it as an iPhone, iPad, Mac, Windows PC, router or other device so the list shows the right icon. Devices paired on v1.0.0 keep working; the new details fill in by themselves. | **Speed history graph**<br>A graph of this session's download and upload speeds, sampled as you share. It is kept for the session only and starts empty on each launch. |
+| **Diagnostics**<br>One screen checks the hotspot interface, the WireGuard server, internet reachability, the keep-alive, the battery and thermal state, and how many days this build has left, each as OK, warning or failed, with a plain text summary you can share. | **Battery guard**<br>Optionally stop sharing at 20, 30, 40 or 50% battery while the iPhone is unplugged, with a warning 10 points earlier and a Resume button afterwards. Plugging in disables it, and it picks sharing back up as the battery recovers. |
 
 ---
 
@@ -96,7 +102,7 @@ If it runs WireGuard, it can share through Tether. WireGuard has official apps f
 
 ## 🗺️ Roadmap
 
-**v1.1.0 | in development**
+**v1.1.0 | shipped 2026-11-06**
 
 - Per-device data usage with daily caps that pause a device when it hits its limit
 - A Live Activity and a Home Screen widget with sharing status, device count and live speeds
@@ -108,12 +114,14 @@ If it runs WireGuard, it can share through Tether. WireGuard has official apps f
 - A diagnostics screen with a shareable log
 - A battery guard that can stop sharing at a level you choose
 
+Nothing further is announced yet. Ideas are welcome in [Issues](https://github.com/c12n/tether/issues).
+
 ---
 
 ## ⚠️ Known Issues
 
 - **Free profile expiry:** signed with a free Apple ID, the app stops opening after 7 days. Reinstalling the IPA restarts the week, and your paired devices survive.
-- **Idle suspension:** once no device has been on the hotspot for 10 minutes, iOS suspends Tether. Open it again, or run **Start Tether**, before turning the hotspot back on, and after a restart.
+- **Idle suspension:** once no device has been on the hotspot for your idle timeout (10 minutes by default), iOS suspends Tether. Open it again, or run **Start Tether**, before turning the hotspot back on, and after a restart.
 - **Your carrier can still notice:** Tether hides where the traffic comes from, not what it is. A Mac's software updates or an iPad's apps still look like a Mac or an iPad to a carrier that looks closely. Many carrier contracts do not allow tethering workarounds, and a carrier can slow down or close a line that breaks them. Check yours. Using Tether is your call and your risk.
 - **Not for the App Store:** Apple does not allow the silent audio keep-alive trick, so Tether is distributed as a sideload build only.
 
@@ -131,7 +139,7 @@ Yes | each device needs a WireGuard client, and WireGuard supports almost everyt
 No. Tether is a regular app that runs its own WireGuard server in its own process. Nothing about it needs a jailbreak, and it never touches the system VPN settings.
 
 **Why does it play silent audio?**
-That is how it stays alive in the background. The audio is silent, it mixes with your music, and it stops when sharing has been idle for 10 minutes.
+That is how it stays alive in the background. The audio is silent, it mixes with your music, and it stops after your idle timeout (10 minutes by default) with no device sharing.
 
 **Does it work while my iPhone is on Wi-Fi?**
 No | Tether shares the iPhone's cellular connection through Personal Hotspot. It only listens on the hotspot network.
