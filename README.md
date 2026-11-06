@@ -1,34 +1,36 @@
 <p align="center">
-  <img src="Sources/Assets.xcassets/AppIcon.appiconset/icon-1024.png" width="120" alt="Tether app icon">
+  <img src="Sources/Assets.xcassets/AppIcon.appiconset/icon-1024.png" width="120" alt="Ferry app icon">
 </p>
 
-<h1 align="center">Tether</h1>
+<h1 align="center">Ferry</h1>
 
-<p align="center">Download Tether on your iPhone, then any device that can install the WireGuard app or use the WireGuard protocol can use your hotspot | even when your cellular plan blocks or slows down Personal Hotspot.</p>
+<p align="center">Download Ferry on your iPhone, then any device that can install the WireGuard app or use the WireGuard protocol can use your hotspot | even when your cellular plan blocks or slows down Personal Hotspot.</p>
 
 <p align="center">
   <img src="https://img.shields.io/badge/Platform-iOS%2017%2B-0B7285" alt="Platform: iOS 17+">
-  <a href="https://github.com/c12n/tether/releases/latest"><img src="https://img.shields.io/github/v/release/c12n/tether?label=Latest%20release&color=0B7285" alt="Latest release"></a>
-  <a href="https://github.com/c12n/tether/releases"><img src="https://img.shields.io/github/downloads/c12n/tether/total?label=Downloads&color=0B7285" alt="Downloads"></a>
-  <img src="https://img.shields.io/github/license/c12n/tether?color=0B7285" alt="License: MIT">
+  <a href="https://github.com/c12n/ferry/releases/latest"><img src="https://img.shields.io/github/v/release/c12n/ferry?label=Latest%20release&color=0B7285" alt="Latest release"></a>
+  <a href="https://github.com/c12n/ferry/releases"><img src="https://img.shields.io/github/downloads/c12n/ferry/total?label=Downloads&color=0B7285" alt="Downloads"></a>
+  <img src="https://img.shields.io/github/license/c12n/ferry?color=0B7285" alt="License: MIT">
 </p>
 
 <p align="center">
-  📥 <a href="https://github.com/c12n/tether/releases/latest"><b>Download v1.1.0</b></a> | 🧭 <a href="#-how-it-works"><b>How it works</b></a> | ❓ <a href="#-faq"><b>FAQ</b></a> | 🐛 <a href="https://github.com/c12n/tether/issues"><b>Report an issue</b></a>
+  📥 <a href="https://github.com/c12n/ferry/releases/latest"><b>Download v1.1.1</b></a> | 🧭 <a href="#-how-it-works"><b>How it works</b></a> | ❓ <a href="#-faq"><b>FAQ</b></a> | 🐛 <a href="https://github.com/c12n/ferry/issues"><b>Report an issue</b></a>
 </p>
 
-`v1.1.0` | Latest release | the upstream app by Viktor Svirsky, packaged as an unsigned IPA, plus this fork's additions: per-device usage and data caps, a Live Activity and widget, guest devices, notifications, a speed history graph, diagnostics and a battery guard.
+`v1.1.1` | Latest release | Tether is now called Ferry: same app, new name, to avoid confusion with other products called Tether. Bundle ID unchanged, so paired devices, settings and usage carry over.
+
+`v1.1.0` | Shipped as Tether | the upstream app by Viktor Svirsky, packaged as an unsigned IPA, plus this fork's additions: per-device usage and data caps, a Live Activity and widget, guest devices, notifications, a speed history graph, diagnostics and a battery guard.
 
 `v1.0.0` | First sideload release of this fork | the upstream app by Viktor Svirsky, packaged as an unsigned IPA you can sign and install yourself.
 
 > [!NOTE]
-> **Fork.** This repository is a fork of [viktor-svirsky/tether](https://github.com/viktor-svirsky/tether). The app is upstream's work; this fork sets a fork bundle ID (`com.c12n.tether`), removes the upstream self-hosted CI, and builds an unsigned IPA on GitHub Actions. The original README is kept in this repo's history.
+> **Fork.** This repository is a fork of [viktor-svirsky/tether](https://github.com/viktor-svirsky/tether). The app is upstream's work; this fork was previously named Tether as well and is now called Ferry. This fork sets a fork bundle ID (`com.c12n.tether`), removes the upstream self-hosted CI, and builds an unsigned IPA on GitHub Actions. The original README is kept in this repo's history.
 
 ---
 
 ## 📱 Screenshots
 
-| ![Tether sharing with an iPad](docs/sharing.png) | ![Tether with the hotspot on and a QR code for the first device](docs/add-device.png) |
+| ![Ferry sharing with an iPad](docs/sharing.png) | ![Ferry with the hotspot on and a QR code for the first device](docs/add-device.png) |
 | :---: | :---: |
 | **Sharing with an iPad, with live speeds and the device list** | **Hotspot on, with a QR code ready for the next device** |
 
@@ -36,13 +38,13 @@
 
 ## 🌟 Features
 
-| **Sharing that looks like phone traffic**<br>Carriers can tell when traffic comes from a hotspot client, and some plans block it or slow it to a crawl. Tether makes the connections itself, so shared traffic leaves from the iPhone like the phone's own traffic. | **Pairing by QR code**<br>The main screen always shows a QR code for the next device. Scan it with the free WireGuard app, and the device appears in the list by itself the first time it connects. |
+| **Sharing that looks like phone traffic**<br>Carriers can tell when traffic comes from a hotspot client, and some plans block it or slow it to a crawl. Ferry makes the connections itself, so shared traffic leaves from the iPhone like the phone's own traffic. | **Pairing by QR code**<br>The main screen always shows a QR code for the next device. Scan it with the free WireGuard app, and the device appears in the list by itself the first time it connects. |
 | :--- | :--- |
-| **One key per device**<br>Every iPad, Mac or router gets its own WireGuard key. Removing a device in Tether locks that device out without touching the others, and renaming a device is one tap on its name. | **Everything passes through**<br>Calls and games included. WireGuard's own code decrypts the traffic and a small TCP/IP stack inside Tether makes each connection again from the iPhone. UDP behaves like a full cone NAT, so peer to peer apps can connect directly. |
-| **Works with any WireGuard device**<br>If it runs WireGuard, it can share through Tether: iPhone, iPad and Android phones and tablets, Mac and Windows computers, Linux machines, and routers with WireGuard built in or running OpenWrt, including GL.iNet and UniFi travel routers. A travel router joins as one client, and every device behind it shares through it too. Tether notices router client traffic by itself and lets it through. | **Start it from Shortcuts**<br>Two actions with nothing to set up: **Start Tether** wakes the app in the background, and **Is Tether Sharing?** answers true or false for an If. Ask Siri, use Spotlight, or put a "Hotspot" shortcut on the Action button. |
-| **Stays alive in the background**<br>Tether plays silent audio so iOS does not suspend it while you share. It mixes with other audio, so your music keeps playing, and it picks up again after a call or Siri. With no device on the hotspot for your idle timeout (5, 10 or 30 minutes, or never; 10 by default) it stops to save battery. | **Private by design**<br>Tether only listens on the hotspot network, never on other Wi-Fi. There are no accounts, no analytics and no telemetry, and your device keys stay on the iPhone. |
-| **Your iPhone VPN covers your devices**<br>Devices reach whatever the iPhone reaches, private networks included. If the iPhone runs a VPN, shared traffic goes through that VPN too. | **No VPN entitlement, no jailbreak**<br>Tether is a normal app with a WireGuard server inside it. It needs no network extension entitlement and no jailbreak, which is also why it can be sideloaded with a free Apple ID. |
-| **Per-device usage and data caps**<br>Every device shows what it has used this session, today and all time, right in the device list and on its detail screen. Set a daily cap per device (500 MB to 10 GB) and that device pauses by itself when it hits the cap, then comes back the next day. | **Live Activity and widget**<br>Sharing status, connected devices, live download and upload speeds and today's usage on the Lock Screen and in the Dynamic Island, plus a Home Screen widget. If a re-sign breaks the App Group, the widget falls back to an "Open Tether" placeholder instead of failing. |
+| **One key per device**<br>Every iPad, Mac or router gets its own WireGuard key. Removing a device in Ferry locks that device out without touching the others, and renaming a device is one tap on its name. | **Everything passes through**<br>Calls and games included. WireGuard's own code decrypts the traffic and a small TCP/IP stack inside Ferry makes each connection again from the iPhone. UDP behaves like a full cone NAT, so peer to peer apps can connect directly. |
+| **Works with any WireGuard device**<br>If it runs WireGuard, it can share through Ferry: iPhone, iPad and Android phones and tablets, Mac and Windows computers, Linux machines, and routers with WireGuard built in or running OpenWrt, including GL.iNet and UniFi travel routers. A travel router joins as one client, and every device behind it shares through it too. Ferry notices router client traffic by itself and lets it through. | **Start it from Shortcuts**<br>Two actions with nothing to set up: **Start Ferry** wakes the app in the background, and **Is Ferry Sharing?** answers true or false for an If. Ask Siri, use Spotlight, or put a "Hotspot" shortcut on the Action button. |
+| **Stays alive in the background**<br>Ferry plays silent audio so iOS does not suspend it while you share. It mixes with other audio, so your music keeps playing, and it picks up again after a call or Siri. With no device on the hotspot for your idle timeout (5, 10 or 30 minutes, or never; 10 by default) it stops to save battery. | **Private by design**<br>Ferry only listens on the hotspot network, never on other Wi-Fi. There are no accounts, no analytics and no telemetry, and your device keys stay on the iPhone. |
+| **Your iPhone VPN covers your devices**<br>Devices reach whatever the iPhone reaches, private networks included. If the iPhone runs a VPN, shared traffic goes through that VPN too. | **No VPN entitlement, no jailbreak**<br>Ferry is a normal app with a WireGuard server inside it. It needs no network extension entitlement and no jailbreak, which is also why it can be sideloaded with a free Apple ID. |
+| **Per-device usage and data caps**<br>Every device shows what it has used this session, today and all time, right in the device list and on its detail screen. Set a daily cap per device (500 MB to 10 GB) and that device pauses by itself when it hits the cap, then comes back the next day. | **Live Activity and widget**<br>Sharing status, connected devices, live download and upload speeds and today's usage on the Lock Screen and in the Dynamic Island, plus a Home Screen widget. If a re-sign breaks the App Group, the widget falls back to an "Open Ferry" placeholder instead of failing. |
 | **Guest devices, pause and resume**<br>Make any device a guest for 1 hour, 4 hours or 24 hours and it is removed by itself when the time is up, key and all. Pause any device to cut it off without removing it, and resume it whenever you like. | **Notifications**<br>Get told when a device connects or disconnects, when a device hits its data cap, when sharing stops on its own, and when the battery guard is about to act. Each kind can be turned off in Settings. |
 | **Richer device details**<br>Each device shows its last WireGuard handshake, when it was last seen, and its own live speed, and you can tag it as an iPhone, iPad, Mac, Windows PC, router or other device so the list shows the right icon. Devices paired on v1.0.0 keep working; the new details fill in by themselves. | **Speed history graph**<br>A graph of this session's download and upload speeds, sampled as you share. It is kept for the session only and starts empty on each launch. |
 | **Diagnostics**<br>One screen checks the hotspot interface, the WireGuard server, internet reachability, the keep-alive, the battery and thermal state, and how many days this build has left, each as OK, warning or failed, with a plain text summary you can share. | **Battery guard**<br>Optionally stop sharing at 20, 30, 40 or 50% battery while the iPhone is unplugged, with a warning 10 points earlier and a Resume button afterwards. Plugging in disables it, and it picks sharing back up as the battery recovers. |
@@ -52,11 +54,11 @@
 ## 🧭 How It Works
 
 ```
-iPad, Mac or router  --hotspot-->  Tether on iPhone  --cellular-->  internet
+iPad, Mac or router  --hotspot-->  Ferry on iPhone  --cellular-->  internet
    (WireGuard client)
 ```
 
-Tether runs a WireGuard server on UDP port 51820 on the hotspot address `172.20.10.1`. A client device still joins your Personal Hotspot, but instead of sending its traffic straight out, its WireGuard client hands the traffic to Tether. The WireGuard server is built from wireguard-go with a gVisor TCP/IP stack, and Tether re-originates every connection from the iPhone itself.
+Ferry runs a WireGuard server on UDP port 51820 on the hotspot address `172.20.10.1`. A client device still joins your Personal Hotspot, but instead of sending its traffic straight out, its WireGuard client hands the traffic to Ferry. The WireGuard server is built from wireguard-go with a gVisor TCP/IP stack, and Ferry re-originates every connection from the iPhone itself.
 
 ---
 
@@ -74,27 +76,27 @@ Tether runs a WireGuard server on UDP port 51820 on the hotspot address `172.20.
 
 **Sideload**
 
-1. Download `Tether.ipa` from the [latest release](https://github.com/c12n/tether/releases/latest).
+1. Download `Ferry.ipa` from the [latest release](https://github.com/c12n/ferry/releases/latest).
 2. Install it with SideStore, AltStore, Feather or Sideloadly, signed with your own Apple ID.
 3. The first time, trust your developer certificate: Settings, then General, then VPN and Device Management, then your Apple ID, then Trust.
-4. Open Tether. It waits for Personal Hotspot and starts by itself when the hotspot is on. You can leave it in the background.
+4. Open Ferry. It waits for Personal Hotspot and starts by itself when the hotspot is on. You can leave it in the background.
 
 > [!TIP]
-> Signed with a free Apple ID, the app stops opening after 7 days. Tether warns you on its main screen when three days or less are left. Reinstall the IPA before then; your devices and settings stay.
+> Signed with a free Apple ID, the app stops opening after 7 days. Ferry warns you on its main screen when three days or less are left. Reinstall the IPA before then; your devices and settings stay.
 
 **Build it yourself**
 
 1. Install XcodeGen and Go: `brew install xcodegen go`.
-2. Open `project.yml` and set `DEVELOPMENT_TEAM` to your own team ID, and `APP_BUNDLE_ID` to something unique like `com.yourname.tether`.
+2. Open `project.yml` and set `DEVELOPMENT_TEAM` to your own team ID, and `APP_BUNDLE_ID` to something unique like `com.yourname.ferry`.
 3. Run `xcodegen generate`, then build and install with `xcodebuild` and `xcrun devicectl` as described in the upstream README history.
 
 ---
 
 ## 🔗 Connect a Device
 
-If it runs WireGuard, it can share through Tether. WireGuard has official apps for iOS, Android, macOS and Windows, clients for Linux and the BSDs, and built-in or add-on support on many routers, including GL.iNet, UniFi and anything running OpenWrt. A device with no WireGuard client can still join the hotspot the normal way; it just shares as regular hotspot traffic instead of through Tether.
+If it runs WireGuard, it can share through Ferry. WireGuard has official apps for iOS, Android, macOS and Windows, clients for Linux and the BSDs, and built-in or add-on support on many routers, including GL.iNet, UniFi and anything running OpenWrt. A device with no WireGuard client can still join the hotspot the normal way; it just shares as regular hotspot traffic instead of through Ferry.
 
-- **iPad, iPhone or Android:** install the free WireGuard app, tap +, then Create from QR code, and scan the code on Tether's screen. On Apple devices, edit the tunnel and turn On-Demand on for Wi-Fi, only for your iPhone's hotspot name, then join the hotspot. The tunnel turns itself on at the hotspot and off everywhere else.
+- **iPad, iPhone or Android:** install the free WireGuard app, tap +, then Create from QR code, and scan the code on Ferry's screen. On Apple devices, edit the tunnel and turn On-Demand on for Wi-Fi, only for your iPhone's hotspot name, then join the hotspot. The tunnel turns itself on at the hotspot and off everywhere else.
 - **Mac or Windows:** use "Share as a file, for a Mac or a router" under the code (AirDrop works for a Mac) and Import Tunnel(s) from File in the WireGuard app, since a computer cannot scan the iPhone's screen.
 - **Travel router:** add a WireGuard client in the router's VPN settings from the shared file, connect the router to the iPhone by USB or the hotspot, and turn its VPN on. On other networks, turn the router's VPN off.
 
@@ -114,16 +116,16 @@ If it runs WireGuard, it can share through Tether. WireGuard has official apps f
 - A diagnostics screen with a shareable log
 - A battery guard that can stop sharing at a level you choose
 
-Nothing further is announced yet. Ideas are welcome in [Issues](https://github.com/c12n/tether/issues).
+Nothing further is announced yet. Ideas are welcome in [Issues](https://github.com/c12n/ferry/issues).
 
 ---
 
 ## ⚠️ Known Issues
 
 - **Free profile expiry:** signed with a free Apple ID, the app stops opening after 7 days. Reinstalling the IPA restarts the week, and your paired devices survive.
-- **Idle suspension:** once no device has been on the hotspot for your idle timeout (10 minutes by default), iOS suspends Tether. Open it again, or run **Start Tether**, before turning the hotspot back on, and after a restart.
-- **Your carrier can still notice:** Tether hides where the traffic comes from, not what it is. A Mac's software updates or an iPad's apps still look like a Mac or an iPad to a carrier that looks closely. Many carrier contracts do not allow tethering workarounds, and a carrier can slow down or close a line that breaks them. Check yours. Using Tether is your call and your risk.
-- **Not for the App Store:** Apple does not allow the silent audio keep-alive trick, so Tether is distributed as a sideload build only.
+- **Idle suspension:** once no device has been on the hotspot for your idle timeout (10 minutes by default), iOS suspends Ferry. Open it again, or run **Start Ferry**, before turning the hotspot back on, and after a restart.
+- **Your carrier can still notice:** Ferry hides where the traffic comes from, not what it is. A Mac's software updates or an iPad's apps still look like a Mac or an iPad to a carrier that looks closely. Many carrier contracts do not allow tethering workarounds, and a carrier can slow down or close a line that breaks them. Check yours. Using Ferry is your call and your risk.
+- **Not for the App Store:** Apple does not allow the silent audio keep-alive trick, so Ferry is distributed as a sideload build only.
 
 ---
 
@@ -133,16 +135,16 @@ Nothing further is announced yet. Ideas are welcome in [Issues](https://github.c
 Yes | free and open source under the MIT license, with no ads and no in-app purchases.
 
 **Does each device need an app?**
-Yes | each device needs a WireGuard client, and WireGuard supports almost everything: iPhone, iPad, Android, Mac, Windows, Linux, and many routers. A device without one can still join the hotspot, but its traffic goes straight out as hotspot traffic and Tether does not help it.
+Yes | each device needs a WireGuard client, and WireGuard supports almost everything: iPhone, iPad, Android, Mac, Windows, Linux, and many routers. A device without one can still join the hotspot, but its traffic goes straight out as hotspot traffic and Ferry does not help it.
 
 **Does it need a jailbreak or a VPN entitlement?**
-No. Tether is a regular app that runs its own WireGuard server in its own process. Nothing about it needs a jailbreak, and it never touches the system VPN settings.
+No. Ferry is a regular app that runs its own WireGuard server in its own process. Nothing about it needs a jailbreak, and it never touches the system VPN settings.
 
 **Why does it play silent audio?**
 That is how it stays alive in the background. The audio is silent, it mixes with your music, and it stops after your idle timeout (10 minutes by default) with no device sharing.
 
 **Does it work while my iPhone is on Wi-Fi?**
-No | Tether shares the iPhone's cellular connection through Personal Hotspot. It only listens on the hotspot network.
+No | Ferry shares the iPhone's cellular connection through Personal Hotspot. It only listens on the hotspot network.
 
 **Does it collect my data?**
 No accounts, no analytics, no tracking. See the Privacy section below.
@@ -151,7 +153,7 @@ No accounts, no analytics, no tracking. See the Privacy section below.
 
 ## 🔒 Privacy
 
-- Tether only listens on the hotspot interface, never on other Wi-Fi networks, and WireGuard only lets in devices you have added.
+- Ferry only listens on the hotspot interface, never on other Wi-Fi networks, and WireGuard only lets in devices you have added.
 - Pairing keys are generated on the iPhone and stay on the iPhone.
 - The app has no accounts, no analytics and no telemetry. The only network traffic it handles is the traffic your own devices ask it to forward.
 
@@ -166,11 +168,11 @@ No accounts, no analytics, no tracking. See the Privacy section below.
 
 ## 🙏 Credits
 
-- **Viktor Svirsky** | creator of Tether. Upstream: [viktor-svirsky/tether](https://github.com/viktor-svirsky/tether)
+- **Viktor Svirsky** | creator of Tether, the upstream app Ferry is forked from. Upstream: [viktor-svirsky/tether](https://github.com/viktor-svirsky/tether)
 - **c12n** | this fork's bundle ID, CI and sideload packaging
 
 ## 📄 License
 
 MIT | see [LICENSE](LICENSE). Copyright (c) 2026 Viktor Svirsky.
 
-The WireGuard server is built from wireguard-go (MIT), gVisor (Apache 2.0) and Go's `golang.org/x` packages (BSD). A built Tether app contains their code, so if you give a build to someone, include their licenses with it.
+The WireGuard server is built from wireguard-go (MIT), gVisor (Apache 2.0) and Go's `golang.org/x` packages (BSD). A built Ferry app contains their code, so if you give a build to someone, include their licenses with it.
