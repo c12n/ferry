@@ -37,7 +37,7 @@
 | **Sharing that looks like phone traffic**<br>Carriers can tell when traffic comes from a hotspot client, and some plans block it or slow it to a crawl. Tether makes the connections itself, so shared traffic leaves from the iPhone like the phone's own traffic. | **Pairing by QR code**<br>The main screen always shows a QR code for the next device. Scan it with the free WireGuard app, and the device appears in the list by itself the first time it connects. |
 | :--- | :--- |
 | **One key per device**<br>Every iPad, Mac or router gets its own WireGuard key. Removing a device in Tether locks that device out without touching the others, and renaming a device is one tap on its name. | **Everything passes through**<br>Calls and games included. WireGuard's own code decrypts the traffic and a small TCP/IP stack inside Tether makes each connection again from the iPhone. UDP behaves like a full cone NAT, so peer to peer apps can connect directly. |
-| **Travel routers welcome**<br>GL.iNet, UniFi Travel Router and similar routers can join as one WireGuard client, and every device behind the router shares through it. Tether notices router client traffic by itself and lets it through. | **Start it from Shortcuts**<br>Two actions with nothing to set up: **Start Tether** wakes the app in the background, and **Is Tether Sharing?** answers true or false for an If. Ask Siri, use Spotlight, or put a "Hotspot" shortcut on the Action button. |
+| **Works with any WireGuard device**<br>If it runs WireGuard, it can share through Tether: iPhone, iPad and Android phones and tablets, Mac and Windows computers, Linux machines, and routers with WireGuard built in or running OpenWrt, including GL.iNet and UniFi travel routers. A travel router joins as one client, and every device behind it shares through it too. Tether notices router client traffic by itself and lets it through. | **Start it from Shortcuts**<br>Two actions with nothing to set up: **Start Tether** wakes the app in the background, and **Is Tether Sharing?** answers true or false for an If. Ask Siri, use Spotlight, or put a "Hotspot" shortcut on the Action button. |
 | **Stays alive in the background**<br>Tether plays silent audio so iOS does not suspend it while you share. It mixes with other audio, so your music keeps playing, and it picks up again after a call or Siri. With no device on the hotspot for 10 minutes it stops to save battery. | **Private by design**<br>Tether only listens on the hotspot network, never on other Wi-Fi. There are no accounts, no analytics and no telemetry, and your device keys stay on the iPhone. |
 | **Your iPhone VPN covers your devices**<br>Devices reach whatever the iPhone reaches, private networks included. If the iPhone runs a VPN, shared traffic goes through that VPN too. | **No VPN entitlement, no jailbreak**<br>Tether is a normal app with a WireGuard server inside it. It needs no network extension entitlement and no jailbreak, which is also why it can be sideloaded with a free Apple ID. |
 
@@ -86,8 +86,10 @@ Tether runs a WireGuard server on UDP port 51820 on the hotspot address `172.20.
 
 ## 🔗 Connect a Device
 
-- **iPad or iPhone:** install the free WireGuard app, tap +, then Create from QR code, and scan the code on Tether's screen. Edit the tunnel and turn On-Demand on for Wi-Fi, only for your iPhone's hotspot name, then join the hotspot. The tunnel turns itself on at the hotspot and off everywhere else.
-- **Mac:** use "Share as a file, for a Mac or a router" under the code (AirDrop works) and Import Tunnel(s) from File, since a Mac cannot scan the iPhone's screen.
+If it runs WireGuard, it can share through Tether. WireGuard has official apps for iOS, Android, macOS and Windows, clients for Linux and the BSDs, and built-in or add-on support on many routers, including GL.iNet, UniFi and anything running OpenWrt. A device with no WireGuard client can still join the hotspot the normal way; it just shares as regular hotspot traffic instead of through Tether.
+
+- **iPad, iPhone or Android:** install the free WireGuard app, tap +, then Create from QR code, and scan the code on Tether's screen. On Apple devices, edit the tunnel and turn On-Demand on for Wi-Fi, only for your iPhone's hotspot name, then join the hotspot. The tunnel turns itself on at the hotspot and off everywhere else.
+- **Mac or Windows:** use "Share as a file, for a Mac or a router" under the code (AirDrop works for a Mac) and Import Tunnel(s) from File in the WireGuard app, since a computer cannot scan the iPhone's screen.
 - **Travel router:** add a WireGuard client in the router's VPN settings from the shared file, connect the router to the iPhone by USB or the hotspot, and turn its VPN on. On other networks, turn the router's VPN off.
 
 ---
@@ -123,7 +125,7 @@ Tether runs a WireGuard server on UDP port 51820 on the hotspot address `172.20.
 Yes | free and open source under the MIT license, with no ads and no in-app purchases.
 
 **Does each device need an app?**
-Yes | each iPad, Mac or router needs a WireGuard client. A device without one can still join the hotspot, but its traffic goes straight out as hotspot traffic and Tether does not help it.
+Yes | each device needs a WireGuard client, and WireGuard supports almost everything: iPhone, iPad, Android, Mac, Windows, Linux, and many routers. A device without one can still join the hotspot, but its traffic goes straight out as hotspot traffic and Tether does not help it.
 
 **Does it need a jailbreak or a VPN entitlement?**
 No. Tether is a regular app that runs its own WireGuard server in its own process. Nothing about it needs a jailbreak, and it never touches the system VPN settings.
