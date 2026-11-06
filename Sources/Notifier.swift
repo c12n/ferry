@@ -1,7 +1,7 @@
 import Foundation
 import UserNotifications
 
-/// Local notifications for the things that happen while Tether is in the background: a
+/// Local notifications for the things that happen while Ferry is in the background: a
 /// device joining or leaving, sharing stopping, a device hitting its data cap, and the
 /// battery guard's warning. Nothing here asks for permission on its own — Model asks,
 /// contextually, the first time sharing starts and when a notification setting is turned
@@ -20,15 +20,15 @@ final class Notifier {
     }
 
     func deviceJoined(_ name: String) {
-        post(id: "join", title: "Device connected", body: "\(name) is now using Tether.")
+        post(id: "join", title: "Device connected", body: "\(name) is now using Ferry.")
     }
 
     func deviceLeft(_ name: String) {
-        post(id: "leave", title: "Device disconnected", body: "\(name) is no longer using Tether.")
+        post(id: "leave", title: "Device disconnected", body: "\(name) is no longer using Ferry.")
     }
 
     func sharingStopped(reason: String) {
-        post(id: "stopped", title: "Tether stopped sharing", body: reason)
+        post(id: "stopped", title: "Ferry stopped sharing", body: reason)
     }
 
     func deviceCapped(_ name: String) {
@@ -37,7 +37,7 @@ final class Notifier {
 
     func batteryWarning(percent: Int, threshold: Int) {
         post(id: "battery", title: "Battery at \(percent)%",
-             body: "Tether will stop sharing at \(threshold)% unless you plug in.")
+             body: "Ferry will stop sharing at \(threshold)% unless you plug in.")
     }
 
     private func post(id: String, title: String, body: String) {

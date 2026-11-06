@@ -231,7 +231,7 @@ enum ReadyCode {
             return (made.qr, made.file)
         }
         let text = config()
-        let code = (id: peer.id, qr: QRCode.image(text), file: ConfigFile.write(text, named: "Tether"))
+        let code = (id: peer.id, qr: QRCode.image(text), file: ConfigFile.write(text, named: "Ferry"))
         made = code
         return (code.qr, code.file)
     }

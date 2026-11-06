@@ -1,15 +1,15 @@
 import AppIntents
 
-// Actions for the Shortcuts app, Siri, Spotlight and the Action button. iOS suspends Tether
+// Actions for the Shortcuts app, Siri, Spotlight and the Action button. iOS suspends Ferry
 // once nothing has been on the hotspot for the idle timeout (KeepAlivePolicy; 10 minutes by
 // default, adjustable in Settings), and Shortcuts has no trigger for Personal Hotspot
 // turning on. So a shortcut turns the hotspot on with Shortcuts' own Set Personal Hotspot
-// action, then runs Start Tether, which wakes Tether in the background without opening it.
+// action, then runs Start Ferry, which wakes Ferry in the background without opening it.
 
 struct StartTetherIntent: AppIntent {
-    static var title: LocalizedStringResource = "Start Tether"
+    static var title: LocalizedStringResource = "Start Ferry"
     static var description = IntentDescription(
-        "Wakes Tether in the background, the same as opening it. It shares as soon as a device joins Personal Hotspot. Put it after Set Personal Hotspot.")
+        "Wakes Ferry in the background, the same as opening it. It shares as soon as a device joins Personal Hotspot. Put it after Set Personal Hotspot.")
 
     @MainActor
     func perform() async throws -> some IntentResult & ReturnsValue<Bool> & ProvidesDialog {
@@ -21,9 +21,9 @@ struct StartTetherIntent: AppIntent {
 }
 
 struct TetherStatusIntent: AppIntent {
-    static var title: LocalizedStringResource = "Is Tether Sharing?"
+    static var title: LocalizedStringResource = "Is Ferry Sharing?"
     static var description = IntentDescription(
-        "True while Tether is sharing Personal Hotspot, for an If in a shortcut. It also says how many devices are connected.")
+        "True while Ferry is sharing Personal Hotspot, for an If in a shortcut. It also says how many devices are connected.")
 
     @MainActor
     func perform() async throws -> some IntentResult & ReturnsValue<Bool> & ProvidesDialog {
@@ -34,14 +34,14 @@ struct TetherStatusIntent: AppIntent {
     }
 }
 
-/// Ready in Shortcuts, Siri and Spotlight as soon as Tether is installed, with nothing to set up.
+/// Ready in Shortcuts, Siri and Spotlight as soon as Ferry is installed, with nothing to set up.
 struct TetherShortcuts: AppShortcutsProvider {
     static var appShortcuts: [AppShortcut] {
         AppShortcut(intent: StartTetherIntent(),
                     phrases: ["Start \(.applicationName)", "Share internet with \(.applicationName)"],
-                    shortTitle: "Start Tether", systemImageName: "link")
+                    shortTitle: "Start Ferry", systemImageName: "link")
         AppShortcut(intent: TetherStatusIntent(),
                     phrases: ["Is \(.applicationName) sharing", "\(.applicationName) status"],
-                    shortTitle: "Is Tether Sharing?", systemImageName: "link.circle")
+                    shortTitle: "Is Ferry Sharing?", systemImageName: "link.circle")
     }
 }

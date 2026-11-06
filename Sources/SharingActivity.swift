@@ -57,7 +57,7 @@ final class SharingActivity {
                     lastActivityPush = now
                     lastPushedState = state
                 } catch {
-                    // Live Activities off for Tether, or the system's limit reached: the
+                    // Live Activities off for Ferry, or the system's limit reached: the
                     // widget still works, and the next sample tries again only if the
                     // activity is still missing — request failures are cheap to retry
                     // here because `activity` stays nil and state keeps changing hands.

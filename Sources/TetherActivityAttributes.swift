@@ -17,5 +17,5 @@ struct TetherActivityAttributes: ActivityAttributes {
     }
 
     /// Fixed for every activity: there is only the one session.
-    var title: String = "Tether"
+    var title: String = "Ferry"
 }

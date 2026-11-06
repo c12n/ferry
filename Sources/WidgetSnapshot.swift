@@ -23,7 +23,7 @@ enum WidgetSnapshotStore {
 
     /// The group's defaults when the group resolves, else the process's own — see the note
     /// on `WidgetSnapshot`. The widget reads only the group's; a snapshot it can't find is
-    /// its "Open Tether" state.
+    /// its "Open Ferry" state.
     static func defaults(forWidget: Bool = false) -> UserDefaults? {
         if let shared = UserDefaults(suiteName: appGroup) { return shared }
         return forWidget ? nil : .standard

@@ -49,7 +49,7 @@ private struct Check {
     }
 }
 
-/// Everything that has to be true for Tether to share, checked live, with a plain-text
+/// Everything that has to be true for Ferry to share, checked live, with a plain-text
 /// summary to share when something is wrong. The only network call it makes is the
 /// internet probe, to Apple's own connectivity-check page.
 struct DiagnosticsView: View {
@@ -65,7 +65,7 @@ struct DiagnosticsView: View {
         if let address = model.boundHost {
             out.append(Check(title: "Personal Hotspot", level: .ok, detail: "On, this iPhone is \(address)"))
         } else if Interfaces.hotspotAddress() != nil {
-            out.append(Check(title: "Personal Hotspot", level: .warning, detail: "On, but Tether hasn't bound to it yet"))
+            out.append(Check(title: "Personal Hotspot", level: .warning, detail: "On, but Ferry hasn't bound to it yet"))
         } else {
             out.append(Check(title: "Personal Hotspot", level: .failed, detail: "Off — turn on Personal Hotspot and allow others to join"))
         }
@@ -97,8 +97,8 @@ struct DiagnosticsView: View {
         }
         // Keep-alive.
         out.append(model.keepAliveActive
-            ? Check(title: "Keep-alive", level: .ok, detail: "The silent sound is playing, so iOS keeps Tether running")
-            : Check(title: "Keep-alive", level: .warning, detail: "Not playing — Tether may be suspended when the hotspot is idle"))
+            ? Check(title: "Keep-alive", level: .ok, detail: "The silent sound is playing, so iOS keeps Ferry running")
+            : Check(title: "Keep-alive", level: .warning, detail: "Not playing — Ferry may be suspended when the hotspot is idle"))
         // Battery.
         let device = UIDevice.current
         if device.batteryLevel >= 0 {
@@ -134,7 +134,7 @@ struct DiagnosticsView: View {
             let mark = switch check.level { case .ok: "OK"; case .warning: "WARNING"; case .failed: "FAILED" }
             return "[\(mark)] \(check.title): \(check.detail)"
         }
-        return (["Tether diagnostics — \(Format.dateTime(Date()))",
+        return (["Ferry diagnostics — \(Format.dateTime(Date()))",
                  "Sharing: \(model.sharing ? "yes" : "no") · \(model.wireGuardConnected.count) devices connected",
                  "Today: \(Format.bytes(model.usage.todayTotal().total)) · Session: \(Format.bytes(model.usage.sessionTotal().total))"]
             + lines).joined(separator: "\n")
