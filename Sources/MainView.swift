@@ -143,6 +143,7 @@ struct MainView: View {
 
 /// The small line under a device's name: its state, its guest time, what it used today
 /// and its speed, as much of that as applies.
+@MainActor
 private func deviceCaption(_ peer: WireGuardSetup.Peer, model: Model) -> String {
     if peer.paused {
         return peer.pauseReason == .cap ? "Paused · data cap reached" : "Paused"
