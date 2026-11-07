@@ -129,6 +129,19 @@ Nothing further is announced yet. Ideas are welcome in [Issues](https://github.c
 
 ---
 
+## ⚖️ Disclaimer
+
+Ferry is provided as is, without any warranty of any kind, and you use it entirely at your own risk. In plain terms:
+
+- **Your carrier, your responsibility.** The maintainer of this fork is not responsible for any penalties, fines, fees or charges, throttling or speed reductions, warnings, or suspension or termination of your mobile service, and not for the loss of your plan, your number or any promotional pricing, or any other issue you may encounter with your carrier or any other provider as a result of using Ferry.
+- **Your plan's terms apply.** Many mobile plans restrict tethering or hotspot sharing, or allow only a limited amount of it, and using a workaround can breach your contract. Data used by devices sharing through Ferry counts against your plan like any other data, including any overage or roaming charges. Check your plan's terms before you use Ferry, and stop using it if your carrier tells you to.
+- **No guarantee it works or stays unnoticed.** Ferry is not guaranteed to work with every carrier, plan, device or iOS version, and no promise is made that a carrier cannot detect sharing. Detection methods and plan rules change over time.
+- **Your devices, your network.** The maintainer is not responsible for any damage to your iPhone or to devices that connect through it, battery wear or overheating, lost data, or anything that happens on or through a connection you share. You are responsible for who you let connect and for all traffic that passes through your iPhone while sharing.
+- **Laws and rules.** You are solely responsible for making sure your use of Ferry complies with the laws and regulations that apply to you.
+- **No affiliation.** Ferry is an independent open source project. It is not affiliated with, endorsed by or sponsored by Apple, the WireGuard project, or any mobile carrier.
+
+---
+
 ## ❓ FAQ
 
 **Is it free?**
