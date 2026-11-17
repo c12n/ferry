@@ -42,11 +42,11 @@ enum BillingCycle {
     /// The start of the cycle after the one beginning at `cycleStart`. The billing
     /// day is clamped afresh in the new month: a cycle that started on April 30
     /// (billing day 31) is followed by one starting May 31, not May 30.
-    static func nextStart(billingDay: Int, after cycleStart: Date, calendar: Calendar = .current) -> Date {
-        let parts = calendar.dateComponents([.year, .month], from: cycleStart)
+    static func nextStart(billingDay: Int, after start: Date, calendar: Calendar = .current) -> Date {
+        let parts = calendar.dateComponents([.year, .month], from: start)
         guard let year = parts.year, let month = parts.month,
               let first = calendar.date(from: DateComponents(year: year, month: month, day: 1)),
-              let next = calendar.date(byAdding: .month, value: 1, to: first) else { return cycleStart }
+              let next = calendar.date(byAdding: .month, value: 1, to: first) else { return start }
         let nextParts = calendar.dateComponents([.year, .month], from: next)
         return cycleStart(billingDay: billingDay, year: nextParts.year ?? year,
                           month: nextParts.month ?? month, calendar: calendar)
@@ -54,8 +54,8 @@ enum BillingCycle {
 
     /// The current cycle as a half-open range of dates.
     static func range(billingDay: Int, containing date: Date, calendar: Calendar = .current) -> (start: Date, end: Date) {
-        let start = start(billingDay: billingDay, containing: date, calendar: calendar)
-        return (start, nextStart(billingDay: billingDay, after: start, calendar: calendar))
+        let cycleStartDate = start(billingDay: billingDay, containing: date, calendar: calendar)
+        return (cycleStartDate, nextStart(billingDay: billingDay, after: cycleStartDate, calendar: calendar))
     }
 
     private static func cycleStart(billingDay: Int, year: Int, month: Int, calendar: Calendar) -> Date {
