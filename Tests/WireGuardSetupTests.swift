@@ -191,7 +191,14 @@ final class WireGuardSetupTests: XCTestCase {
             return p
         }
         let old = try JSONDecoder().decode(WireGuardSetup.self, from: JSONSerialization.data(withJSONObject: json))
-        XCTAssertEqual(old, setup, "the router switch and the kind of older versions are ignored, the server finds a router itself")
+        // Since 1.2 the kind is a saved display label (the device list icon), so it
+        // loads as saved. The old isRouter flag has no key in the model and is
+        // ignored, as before: which device is a router is something the server
+        // still finds out itself from the traffic, never from the saved file.
+        XCTAssertEqual(old.peers.first?.kind, .router)
+        XCTAssertEqual(old.peers.first?.id, setup.peers.first?.id)
+        XCTAssertEqual(old.peers.first?.address, setup.peers.first?.address)
+        XCTAssertEqual(old.serverPrivateKey, setup.serverPrivateKey)
     }
 
     func testANameIsSaved() {
