@@ -637,6 +637,11 @@ final class Model: ObservableObject {
         }
     }
 
+    /// The devices waiting for approval, for the main screen's section.
+    var pendingDevices: [WireGuardSetup.Peer] {
+        wireGuardPeers.filter { $0.approval == .pending }
+    }
+
     /// Why this device may not pass traffic right now, if anything.
     func block(for peer: WireGuardSetup.Peer) -> AccessBlock? { deviceBlocks[peer.id] }
 

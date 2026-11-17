@@ -31,7 +31,7 @@ struct MainView: View {
                 if model.batteryBlocked {
                     Section {
                         Label {
-                            Text("Sharing stopped to save battery. Plug in, or resume — the guard stays off until the battery recovers.")
+                            Text("Sharing stopped to save battery. Plug in, or resume. The guard stays off until the battery recovers.")
                         } icon: {
                             Image(systemName: "battery.25").foregroundStyle(.orange)
                         }
@@ -45,6 +45,33 @@ struct MainView: View {
                 if model.sharing {
                     Section {
                         SpeedRow(down: model.downSpeed, up: model.upSpeed)
+                        Button("Stop sharing", role: .destructive) { model.stopSharingNow(reason: "manual") }
+                            .accessibilityIdentifier("sharing.stop")
+                    } footer: {
+                        Text("Stops Ferry only. Personal Hotspot stays on, and sharing starts again when the hotspot is next turned on, or when you open Ferry.")
+                    }
+                }
+
+                if !model.pendingDevices.isEmpty {
+                    Section {
+                        ForEach(model.pendingDevices) { peer in
+                            VStack(alignment: .leading, spacing: 6) {
+                                Label(peer.name, systemImage: "hand.raised")
+                                HStack(spacing: 12) {
+                                    Button("Approve") { model.setWireGuardDeviceApproval(peer, .approved) }
+                                        .buttonStyle(.borderedProminent)
+                                        .accessibilityIdentifier("approval.approve.\(peer.name)")
+                                    Button("Deny", role: .destructive) { model.resolveApproval(id: peer.id, fingerprint: peer.keyFingerprint, approve: false) }
+                                        .buttonStyle(.bordered)
+                                        .accessibilityIdentifier("approval.deny.\(peer.name)")
+                                }
+                            }
+                            .padding(.vertical, 2)
+                        }
+                    } header: {
+                        Text("Waiting for approval")
+                    } footer: {
+                        Text("A waiting device can connect to the tunnel but passes no traffic until you approve it. Denying removes it and refuses its key for good.")
                     }
                 }
 
@@ -63,7 +90,7 @@ struct MainView: View {
                                         Text(peer.name)
                                         let caption = deviceCaption(peer, model: model)
                                         if !caption.isEmpty {
-                                            if peer.paused {
+                                            if model.block(for: peer) != nil {
                                                 Text(caption)
                                                     .font(.caption)
                                                     .foregroundStyle(.orange)
@@ -75,8 +102,12 @@ struct MainView: View {
                                         }
                                     }
                                     Spacer()
-                                    if peer.paused {
-                                        Label("Paused", systemImage: "pause.circle.fill")
+                                    if peer.approval == .pending {
+                                        Label("Waiting", systemImage: "hand.raised.fill")
+                                            .font(.subheadline)
+                                            .foregroundStyle(.orange)
+                                    } else if let block = model.block(for: peer) {
+                                        Label(blockLabel(block), systemImage: "pause.circle.fill")
                                             .font(.subheadline)
                                             .foregroundStyle(.orange)
                                     } else {
@@ -92,6 +123,13 @@ struct MainView: View {
                     Section("Usage") {
                         LabeledContent("Today", value: Format.bytes(model.usage.todayTotal().total))
                         LabeledContent("This session", value: Format.bytes(model.usage.sessionTotal().total))
+                        LabeledContent("Billing cycle", value: cycleValue)
+                        NavigationLink {
+                            UsageHistoryView(model: model)
+                        } label: {
+                            Label("Usage history", systemImage: "chart.bar")
+                        }
+                        .accessibilityIdentifier("usage.history")
                     }
                 }
 
@@ -102,6 +140,37 @@ struct MainView: View {
                 }
 
                 AddDeviceSection(model: model, first: model.wireGuardPeers.isEmpty)
+
+                GuestPassSection(model: model)
+
+                Section {
+                    Toggle("Approve new devices", isOn: $model.approvalMode)
+                        .accessibilityIdentifier("settings.approvalMode")
+                    Picker("Billing cycle starts", selection: $model.billingDay) {
+                        ForEach(1...31, id: \.self) { day in
+                            Text("Day \(day)").tag(day)
+                        }
+                    }
+                    .accessibilityIdentifier("settings.billingDay")
+                    Picker("Monthly data cap", selection: monthlyCapBinding) {
+                        Text("Off").tag(nil as UInt64?)
+                        Text("10 GB").tag(UInt64(10_000_000_000) as UInt64?)
+                        Text("25 GB").tag(UInt64(25_000_000_000) as UInt64?)
+                        Text("50 GB").tag(UInt64(50_000_000_000) as UInt64?)
+                        Text("100 GB").tag(UInt64(100_000_000_000) as UInt64?)
+                    }
+                    .accessibilityIdentifier("settings.monthlyCap")
+                    NavigationLink {
+                        BackupView(model: model)
+                    } label: {
+                        Label("Backup and restore", systemImage: "externaldrive")
+                    }
+                    .accessibilityIdentifier("settings.backup")
+                } header: {
+                    Text("Sharing")
+                } footer: {
+                    Text("Approve new devices: a device that connects with the QR code waits, passing no traffic, until you approve it. The monthly cap counts Ferry usage across all devices in the billing cycle; at the cap every device pauses until the next cycle.")
+                }
 
                 Section {
                     Picker("Idle timeout", selection: $model.idleTimeoutMinutes) {
@@ -137,19 +206,98 @@ struct MainView: View {
             // because the screens pushed from here use it for their back button.
             .navigationTitle("Ferry")
             .toolbar(.hidden, for: .navigationBar)
+            .sheet(item: $model.sessionSummaryToShow) { record in
+                SessionSummaryView(record: record)
+            }
         }
+    }
+
+    /// "12.3 GB of 50 GB · Nov 15 to Dec 14", or just the dates with no cap.
+    private var cycleValue: String {
+        let range = model.cycleRange()
+        let used = Format.bytes(model.cycleUsageTotal(now: Date()))
+        let dates = "\(Self.dayText(range.start)) to \(Self.dayText(range.end))"
+        if let cap = model.monthlyCapBytes, cap > 0 {
+            return "\(used) of \(Format.bytes(cap)) · \(dates)"
+        }
+        return "\(used) · \(dates)"
+    }
+
+    private var monthlyCapBinding: Binding<UInt64?> {
+        Binding(get: { model.monthlyCapBytes }, set: { model.monthlyCapBytes = $0 })
+    }
+
+    private static func dayText(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "MMM d"
+        return formatter.string(from: date)
     }
 }
 
-/// The small line under a device's name: its state, its guest time, what it used today
-/// and its speed, as much of that as applies.
+/// The short word a blocked device's row shows.
+func blockLabel(_ block: AccessBlock) -> String {
+    switch block {
+    case .notApproved: return "Waiting"
+    case .paused: return "Paused"
+    case .dailyCap: return "Cap reached"
+    case .monthlyCap: return "Monthly cap"
+    case .guestAccessEnded: return "Guest ended"
+    }
+}
+
+/// How a finished session went, shown when sharing was stopped from inside the app.
+struct SessionSummaryView: View {
+    let record: SessionRecord
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section {
+                    LabeledContent("Shared for", value: SessionSummary.durationText(record.duration(now: Date())))
+                    LabeledContent("Devices that used data", value: "\(record.devicesWithTraffic)")
+                    LabeledContent("Used", value: Format.bytes(record.totalUsage.total))
+                }
+            }
+            .navigationTitle("Session summary")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { dismiss() }
+                }
+            }
+        }
+        .presentationDetents([.medium])
+    }
+}
+
+/// The small line under a device's name: why it is blocked, its guest time, what it
+/// used today and its speed, as much of that as applies.
 @MainActor
 private func deviceCaption(_ peer: WireGuardSetup.Peer, model: Model) -> String {
-    if peer.paused {
-        return peer.pauseReason == .cap ? "Paused · data cap reached" : "Paused"
+    if let block = model.block(for: peer) {
+        switch block {
+        case .notApproved:
+            return "Waiting for approval"
+        case .paused(let until):
+            if until == .distantFuture { return "Paused" }
+            return "Paused until \(Format.dateTime(until))"
+        case .dailyCap:
+            return "Paused · data cap reached"
+        case .monthlyCap:
+            return "Paused · monthly cap reached"
+        case .guestAccessEnded:
+            return "Guest access ended"
+        }
     }
     var parts: [String] = []
-    if let expires = peer.expiresAt {
+    if let pass = peer.guestPass {
+        if pass.consumedAt != nil {
+            parts.append("Guest pass · ends \(Format.dateTime(pass.accessExpiresAt))")
+        } else {
+            parts.append("Guest pass · code expires \(Format.dateTime(pass.qrExpiresAt))")
+        }
+    } else if let expires = peer.expiresAt {
         parts.append("Guest · \(Format.remaining(until: expires, now: Date()))")
     }
     let today = model.usageToday(for: peer).total
@@ -159,6 +307,10 @@ private func deviceCaption(_ peer: WireGuardSetup.Peer, model: Model) -> String 
         parts.append("↓ \(Format.speed(speed.down)) ↑ \(Format.speed(speed.up))")
     }
     return parts.joined(separator: " · ")
+}
+
+extension SessionRecord: Identifiable {
+    var id: Date { startedAt }
 }
 
 /// The session's speeds as a graph, down in the accent colour and up in the upload

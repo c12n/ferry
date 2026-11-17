@@ -83,6 +83,33 @@ struct DeviceView: View {
         Binding(get: { current.kind }, set: { model.setWireGuardDeviceKind(current, to: $0) })
     }
 
+    /// Speed limits in Mbit/s, as the record keeps them in bytes per second
+    /// (1 Mbit/s is 125,000 bytes per second).
+    private static let speedOptions: [(label: String, bps: UInt64?)] = [
+        ("Off", nil), ("1 Mbit/s", 125_000), ("2 Mbit/s", 250_000), ("5 Mbit/s", 625_000),
+        ("10 Mbit/s", 1_250_000), ("25 Mbit/s", 3_125_000), ("50 Mbit/s", 6_250_000),
+    ]
+
+    private var downLimitBinding: Binding<UInt64?> {
+        Binding(get: { current.downLimitBps }, set: { model.setWireGuardDeviceSpeedLimits(current, down: $0, up: current.upLimitBps) })
+    }
+
+    private var upLimitBinding: Binding<UInt64?> {
+        Binding(get: { current.upLimitBps }, set: { model.setWireGuardDeviceSpeedLimits(current, down: current.downLimitBps, up: $0) })
+    }
+
+    /// The status line for a blocked device.
+    private func blockText(_ block: AccessBlock) -> String {
+        switch block {
+        case .notApproved: return "Waiting for approval"
+        case .paused(let until):
+            return until == .distantFuture ? "Paused" : "Paused until \(Format.dateTime(until))"
+        case .dailyCap: return "Paused · data cap reached"
+        case .monthlyCap: return "Paused · monthly cap reached"
+        case .guestAccessEnded: return "Guest access ended"
+        }
+    }
+
     /// The Access picker speaks in hours from now (0 is permanent), while the record
     /// keeps a date: the getter finds the closest choice to the time actually left.
     private var accessBinding: Binding<Int> {
@@ -98,20 +125,41 @@ struct DeviceView: View {
     var body: some View {
         List {
             Section {
-                if current.paused {
-                    Label(current.pauseReason == .cap ? "Paused — data cap reached" : "Paused",
-                          systemImage: "pause.circle.fill")
+                if let block = model.block(for: current) {
+                    Label(blockText(block), systemImage: block == .notApproved ? "hand.raised.fill" : "pause.circle.fill")
                         .foregroundStyle(.orange)
                         .accessibilityIdentifier("device.status")
                 } else {
                     ConnectedLabel(connected: connected)
                         .accessibilityIdentifier("device.status")
                 }
+                if current.approval == .pending {
+                    HStack(spacing: 12) {
+                        Button("Approve") { model.setWireGuardDeviceApproval(current, .approved) }
+                            .buttonStyle(.borderedProminent)
+                            .accessibilityIdentifier("device.approve")
+                        Button("Deny", role: .destructive) {
+                            model.resolveApproval(id: current.id, fingerprint: current.keyFingerprint, approve: false)
+                            dismiss()
+                        }
+                        .buttonStyle(.bordered)
+                        .accessibilityIdentifier("device.deny")
+                    }
+                }
                 if let handshake = model.lastHandshake(for: current) {
                     LabeledContent("Last handshake", value: Format.dateTime(handshake))
                 }
                 if let seen = model.lastSeen(for: current) {
                     LabeledContent("Last seen", value: Format.dateTime(seen))
+                }
+                if let pass = current.guestPass {
+                    if let used = pass.consumedAt {
+                        LabeledContent("Guest pass used", value: Format.dateTime(used))
+                        LabeledContent("Access ends", value: Format.dateTime(pass.accessExpiresAt))
+                    } else {
+                        LabeledContent("Guest pass", value: "Not used yet")
+                        LabeledContent("Code expires", value: Format.dateTime(pass.qrExpiresAt))
+                    }
                 }
             }
 
@@ -141,8 +189,8 @@ struct DeviceView: View {
                     ProgressView(value: min(1, Double(used) / Double(max(cap, 1)))) {
                         Text("\(Format.bytes(used)) of \(Format.bytes(cap))")
                     }
-                    if current.paused, current.pauseReason == .cap {
-                        Text("Cap reached — paused until tomorrow, or raise the cap.")
+                    if model.block(for: current) == .dailyCap {
+                        Text("Cap reached. The device is paused until tomorrow, or until you raise the cap.")
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
                     }
@@ -173,14 +221,46 @@ struct DeviceView: View {
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }
-                Button(current.paused ? "Resume device" : "Pause device") {
-                    model.setWireGuardDevicePaused(current, !current.paused)
+                if current.isPaused(now: Date()) {
+                    if let until = current.pausedUntil, until != .distantFuture {
+                        LabeledContent("Paused until", value: Format.dateTime(until))
+                    }
+                    Button("Resume device") { model.setWireGuardDevicePausedUntil(current, nil) }
+                        .accessibilityIdentifier("device.pause")
+                } else {
+                    Menu {
+                        Button("For 15 minutes") { model.setWireGuardDevicePausedUntil(current, Date().addingTimeInterval(15 * 60)) }
+                        Button("For 1 hour") { model.setWireGuardDevicePausedUntil(current, Date().addingTimeInterval(3600)) }
+                        Button("Until tomorrow") { model.setWireGuardDevicePausedUntil(current, AccessControl.startOfNextDay(after: Date())) }
+                        Button("Until I resume it") { model.setWireGuardDevicePausedUntil(current, .distantFuture) }
+                    } label: {
+                        Text("Pause device")
+                    }
+                    .accessibilityIdentifier("device.pause")
                 }
-                .accessibilityIdentifier("device.pause")
             } header: {
                 Text("Access")
             } footer: {
-                Text("A guest is removed for good when its time is up. A paused device keeps its key and settings but can't pass traffic. Pausing by hand stays until you resume; a data-cap pause lifts tomorrow.")
+                Text("A guest is removed for good when its time is up. A paused device keeps its key and settings but can't pass traffic. A timed pause ends on its own; a data-cap pause lifts tomorrow.")
+            }
+
+            Section {
+                Picker("Download limit", selection: downLimitBinding) {
+                    ForEach(Self.speedOptions, id: \.label) { option in
+                        Text(option.label).tag(option.bps)
+                    }
+                }
+                .accessibilityIdentifier("device.speedDown")
+                Picker("Upload limit", selection: upLimitBinding) {
+                    ForEach(Self.speedOptions, id: \.label) { option in
+                        Text(option.label).tag(option.bps)
+                    }
+                }
+                .accessibilityIdentifier("device.speedUp")
+            } header: {
+                Text("Speed limits")
+            } footer: {
+                Text("Limits apply to this device only, in the tunnel. Ferry's own speeds are not limited.")
             }
 
             Section {

@@ -67,7 +67,7 @@ struct DiagnosticsView: View {
         } else if Interfaces.hotspotAddress() != nil {
             out.append(Check(title: "Personal Hotspot", level: .warning, detail: "On, but Ferry hasn't bound to it yet"))
         } else {
-            out.append(Check(title: "Personal Hotspot", level: .failed, detail: "Off — turn on Personal Hotspot and allow others to join"))
+            out.append(Check(title: "Personal Hotspot", level: .failed, detail: "Off. Turn on Personal Hotspot and allow others to join."))
         }
         // The WireGuard server.
         if let problem = model.wireGuardProblem {
@@ -76,7 +76,7 @@ struct DiagnosticsView: View {
             out.append(Check(title: "WireGuard server", level: .ok,
                              detail: "Running on port \(WireGuardSetup.port), \(model.wireGuardPeers.count) devices paired"))
         } else {
-            out.append(Check(title: "WireGuard server", level: .warning, detail: "Not running — it starts with the hotspot"))
+            out.append(Check(title: "WireGuard server", level: .warning, detail: "Not running. It starts with the hotspot."))
         }
         // Devices.
         let connected = model.wireGuardConnected.count
@@ -89,16 +89,16 @@ struct DiagnosticsView: View {
         case (_, .some(false)):
             out.append(Check(title: "Internet", level: .failed, detail: "Apple's connectivity check didn't answer"))
         case (.some(true), nil):
-            out.append(Check(title: "Internet", level: .ok, detail: "Network path is up — run the check to be sure"))
+            out.append(Check(title: "Internet", level: .ok, detail: "Network path is up. Run the check to be sure."))
         case (.some(false), nil):
-            out.append(Check(title: "Internet", level: .failed, detail: "No network path — the phone itself is offline"))
+            out.append(Check(title: "Internet", level: .failed, detail: "No network path. The phone itself is offline."))
         default:
             out.append(Check(title: "Internet", level: .warning, detail: "Checking…"))
         }
         // Keep-alive.
         out.append(model.keepAliveActive
             ? Check(title: "Keep-alive", level: .ok, detail: "The silent sound is playing, so iOS keeps Ferry running")
-            : Check(title: "Keep-alive", level: .warning, detail: "Not playing — Ferry may be suspended when the hotspot is idle"))
+            : Check(title: "Keep-alive", level: .warning, detail: "Not playing. Ferry may be suspended when the hotspot is idle."))
         // Battery.
         let device = UIDevice.current
         if device.batteryLevel >= 0 {
@@ -112,7 +112,7 @@ struct DiagnosticsView: View {
         }
         switch ProcessInfo.processInfo.thermalState {
         case .serious, .critical:
-            out.append(Check(title: "Temperature", level: .warning, detail: "The iPhone is hot — sharing may slow down"))
+            out.append(Check(title: "Temperature", level: .warning, detail: "The iPhone is hot. Sharing may slow down."))
         default:
             out.append(Check(title: "Temperature", level: .ok, detail: "Normal"))
         }
@@ -134,7 +134,7 @@ struct DiagnosticsView: View {
             let mark = switch check.level { case .ok: "OK"; case .warning: "WARNING"; case .failed: "FAILED" }
             return "[\(mark)] \(check.title): \(check.detail)"
         }
-        return (["Ferry diagnostics — \(Format.dateTime(Date()))",
+        return (["Ferry diagnostics | \(Format.dateTime(Date()))",
                  "Sharing: \(model.sharing ? "yes" : "no") · \(model.wireGuardConnected.count) devices connected",
                  "Today: \(Format.bytes(model.usage.todayTotal().total)) · Session: \(Format.bytes(model.usage.sessionTotal().total))"]
             + lines).joined(separator: "\n")
@@ -167,7 +167,7 @@ struct DiagnosticsView: View {
                     Label("Share diagnostics", systemImage: "square.and.arrow.up")
                 }
             } footer: {
-                Text("The internet check asks Apple's connectivity page (www.apple.com/library/test/success.html) — nothing is sent but the request itself.")
+                Text("The internet check asks Apple's connectivity page (www.apple.com/library/test/success.html). Nothing is sent but the request itself.")
             }
         }
         .navigationTitle("Diagnostics")
