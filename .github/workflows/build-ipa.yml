@@ -27,6 +27,11 @@ jobs:
           go-version-file: WireGuard/go.mod
           cache: false
 
+      - name: Go tests (WireGuard server)
+        run: |
+          set -o pipefail
+          cd WireGuard && go test ./...
+
       - name: Install XcodeGen
         run: brew install xcodegen
 
@@ -37,6 +42,26 @@ jobs:
             swift scripts/make-icon.swift Sources/Assets.xcassets/AppIcon.appiconset/icon-1024.png
           fi
           ls -lh Sources/Assets.xcassets/AppIcon.appiconset/
+
+      - name: Ensure watch app icon exists
+        run: |
+          if [ ! -f Watch/Assets.xcassets/AppIcon.appiconset/icon-1024.png ]; then
+            echo "watch icon-1024.png missing from repo snapshot — regenerating with upstream script"
+            swift scripts/make-icon.swift Watch/Assets.xcassets/AppIcon.appiconset/icon-1024.png
+          fi
+          ls -lh Watch/Assets.xcassets/AppIcon.appiconset/
+
+      - name: Build WireGuard framework, then run the Swift package tests
+        run: |
+          set -o pipefail
+          # swift test links the macOS slice of TetherWG.xcframework (for
+          # WireGuardServer.swift), so the framework is built first, the same
+          # build xcodegen would run as its preGenCommand.
+          scripts/build-wireguard.sh
+          # The TetherCore tests must pass before any app build: billing cycle
+          # math, the blocked-check truth table, CSV escaping, backup validation,
+          # migration, and the rest. A failure here fails the whole build.
+          swift test
 
       - name: Generate Xcode project (also builds WireGuard xcframework)
         run: xcodegen generate
@@ -69,10 +94,13 @@ jobs:
           /usr/libexec/PlistBuddy -c "Print :CFBundleVersion" "$APP/Info.plist"
           /usr/libexec/PlistBuddy -c "Print :CFBundleExecutable" "$APP/Info.plist"
           test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP/Info.plist")" = "com.c12n.tether"
-          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Info.plist")" = "1.1.1"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Info.plist")" = "1.2.0"
           test -d "$APP/PlugIns/TetherWidgets.appex" || { echo "TetherWidgets.appex missing from the app bundle"; ls -R "$APP"; exit 1; }
           /usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$APP/PlugIns/TetherWidgets.appex/Info.plist"
           test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP/PlugIns/TetherWidgets.appex/Info.plist")" = "com.c12n.tether.widgets"
+          test -d "$APP/Watch/FerryWatch.app" || { echo "FerryWatch.app missing from the app bundle"; ls -R "$APP"; exit 1; }
+          /usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$APP/Watch/FerryWatch.app/Info.plist"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP/Watch/FerryWatch.app/Info.plist")" = "com.c12n.tether.watch"
           ls -lh "$APP/Tether"
 
       - name: Package IPA
