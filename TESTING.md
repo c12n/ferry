@@ -9,12 +9,15 @@ scripts/build-wireguard.sh   # once, and after a change in WireGuard/. xcodegen 
 swift test
 ```
 
-They need no device and no internet. They cover:
+They need no device and no internet. CI runs both this suite and the Go tests on every build, before the app is built, and a failure stops the build.
+
+They cover:
 
 - WireGuard keys and configs: key pairs, address allocation, the client config text, and a Keychain error never replacing the saved server key.
 - WireGuardServer.swift through the C API into the real Go server (the xcframework's macOS slice): start and stop, a bad address or a port in use coming back as an error, short keys refused before Go reads them, and peers Go refuses.
 - The server's counters: devices merged by address, a tunnel that is up counting as connected, and counters that never go backwards across restarts.
 - The ready device (let in but not listed until it connects, then listed and replaced by a new one), the build expiry warning, when the keep-alive sound plays, how bytes and speeds read, and what the Shortcuts actions say.
+- The 1.2 rules, as table tests: the one blocked-check (approval, timed pause, daily cap, monthly cap, guest pass end, in that order), the billing cycle's dates (the 31st clamped to a short month, February 29, daylight saving, changing the day mid-cycle) and its 80% and 100% alerts, the per-day history (adding, ranges, pruning into the pre-1.2 totals, and the migration from the 1.1 totals), the CSV export (quoting, and spreadsheet formula injection refused), the backup (bad keys, duplicate and unusable addresses refused, a planted newline in a name stripped, the denied list merged on restore, encryption round trips and a wrong password refused), the session record (what is worth summarizing), and the 1.2 device record (a manual pause saved by 1.1 stays a pause, a cap pause does not carry over, claiming a device blanks its key, a guest pass is saved without its key and a lapsed one is pruned and denied).
 
 The WireGuard server has its own Go tests:
 
@@ -31,7 +34,7 @@ go -C WireGuard run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
 
 The fuzz test sends any payload from the internet through `replyPackets` and checks the fragments are valid IPv4 that put the datagram back together exactly. `govulncheck` fails only when Tether's code can reach a known vulnerability.
 
-They run a real WireGuard client (wireguard-go with its own netstack) against the server over loopback: TCP and UDP through the tunnel, an unknown key getting nothing, sharing off, a removed device locked out and its connections closed, a router's clients sending from their own private addresses (and a plain device or a public address refused), Close during UDP traffic (a deadlock once), full-cone UDP (a reply from an address the device never contacted gets through, the way a call connects), and replies bigger than the tunnel MTU arriving in IPv4 fragments. The client's netstack refuses to send to 127.0.0.1, so the tests dial a documentation address (198.51.100.7) and swap the server's dialer to reach the local test listeners.
+They run a real WireGuard client (wireguard-go with its own netstack) against the server over loopback: TCP and UDP through the tunnel, an unknown key getting nothing, sharing off, a removed device locked out and its connections closed, a router's clients sending from their own private addresses (and a plain device or a public address refused), Close during UDP traffic (a deadlock once), full-cone UDP (a reply from an address the device never contacted gets through, the way a call connects), and replies bigger than the tunnel MTU arriving in IPv4 fragments. The 1.2 policies are covered the same way: a device waiting for approval passes no traffic and passes it after approval with no re-pairing, a timed pause blocks and then ends by the clock, becoming blocked closes a device's connections and its UDP, ClosePeer ends a held connection, a speed limit measurably slows a download, the limiter bursts are the sizes the copy loop needs, and the hotspot's own subnet (172.20.10.0/28) is not forwardable. The client's netstack refuses to send to 127.0.0.1, so the tests dial a documentation address (198.51.100.7) and swap the server's dialer to reach the local test listeners.
 
 ## 2. UI tests on the simulator
 

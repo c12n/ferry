@@ -14,10 +14,12 @@
 </p>
 
 <p align="center">
-  📥 <a href="https://github.com/c12n/ferry/releases/latest"><b>Download v1.1.1</b></a> | 🧭 <a href="#-how-it-works"><b>How it works</b></a> | ❓ <a href="#-faq"><b>FAQ</b></a> | 🐛 <a href="https://github.com/c12n/ferry/issues"><b>Report an issue</b></a>
+  📥 <a href="https://github.com/c12n/ferry/releases/latest"><b>Download v1.2.0</b></a> | 🧭 <a href="#-how-it-works"><b>How it works</b></a> | ❓ <a href="#-faq"><b>FAQ</b></a> | 🐛 <a href="https://github.com/c12n/ferry/issues"><b>Report an issue</b></a>
 </p>
 
-`v1.1.1` | Latest release | Tether is now called Ferry: same app, new name, to avoid confusion with other products called Tether. Bundle ID unchanged, so paired devices, settings and usage carry over.
+`v1.2.0` | Latest release | Ten additions: approve-new-device mode, a Control Center and Lock Screen control plus interactive widget buttons, per-device speed limits, a billing cycle with a monthly cap and warnings, per-day usage history with a chart and CSV export, encrypted backup and restore, a session summary when sharing stops, timed pauses that end on their own, an Apple Watch companion, and one-time guest codes. Bundle ID unchanged, so paired devices, settings and usage carry over.
+
+`v1.1.1` | Tether is now called Ferry: same app, new name, to avoid confusion with other products called Tether. Bundle ID unchanged, so paired devices, settings and usage carry over.
 
 `v1.1.0` | Shipped as Tether | the upstream app by Viktor Svirsky, packaged as an unsigned IPA, plus this fork's additions: per-device usage and data caps, a Live Activity and widget, guest devices, notifications, a speed history graph, diagnostics and a battery guard.
 
@@ -48,6 +50,11 @@
 | **Guest devices, pause and resume**<br>Make any device a guest for 1 hour, 4 hours or 24 hours and it is removed by itself when the time is up, key and all. Pause any device to cut it off without removing it, and resume it whenever you like. | **Notifications**<br>Get told when a device connects or disconnects, when a device hits its data cap, when sharing stops on its own, and when the battery guard is about to act. Each kind can be turned off in Settings. |
 | **Richer device details**<br>Each device shows its last WireGuard handshake, when it was last seen, and its own live speed, and you can tag it as an iPhone, iPad, Mac, Windows PC, router or other device so the list shows the right icon. Devices paired on v1.0.0 keep working; the new details fill in by themselves. | **Speed history graph**<br>A graph of this session's download and upload speeds, sampled as you share. It is kept for the session only and starts empty on each launch. |
 | **Diagnostics**<br>One screen checks the hotspot interface, the WireGuard server, internet reachability, the keep-alive, the battery and thermal state, and how many days this build has left, each as OK, warning or failed, with a plain text summary you can share. | **Battery guard**<br>Optionally stop sharing at 20, 30, 40 or 50% battery while the iPhone is unplugged, with a warning 10 points earlier and a Resume button afterwards. Plugging in disables it, and it picks sharing back up as the battery recovers. |
+| **Approve new devices**<br>With approval mode on, a device that connects with the QR code waits, passing no traffic at all, until you approve it, from the app or from the notification's Approve button. Denying removes it and refuses its key for good. | **Control Center, Lock Screen and widget controls**<br>On iOS 18, Ferry is a Control Center and Lock Screen control, and the widget has Start and Stop buttons. The control only shows Ferry as on while the app is actually alive and sharing. |
+| **Per-device speed limits**<br>Cap a device's download and upload separately, from 1 to 50 Mbit/s, enforced where the traffic is forwarded. The device's shown speed is the limited, measured one. | **Billing cycle and monthly cap**<br>Pick the day your cycle starts and a monthly cap across all devices. Ferry warns at 80% and pauses every device at 100% until the next cycle. |
+| **Usage history and CSV**<br>Per-day usage per device, kept for about a year, with a stacked chart of the last 30 days and a CSV export that opens in any spreadsheet. | **Encrypted backup and restore**<br>Back up the server key, devices, settings and the denied list into one file, encrypted with a password you choose. Restore replaces the setup; denied keys stay denied. |
+| **Session summary**<br>When sharing stops, you get the session at a glance: how long it ran, how many devices used data and how much. On the Lock Screen for a while, or as a notification when Ferry was in the background. | **Timed pause**<br>Pause a device for 15 minutes, an hour, until tomorrow, or until you resume it. A timed pause ends by itself, by the clock, even if Ferry is suspended at the time. |
+| **Apple Watch companion**<br>Sharing state, connected devices, live speeds while the watch app is open, and a Stop button. The Live Activity also appears in the watch's Smart Stack on watchOS 11. | **One-time guest codes**<br>A QR code that works once, for one device, and only for 10 minutes: whoever uses it gets 4 hours. The code cannot be shown again, is hidden while the screen is recorded, and a code that lapses unused can never be used. |
 
 ---
 
@@ -115,6 +122,19 @@ If it runs WireGuard, it can share through Ferry. WireGuard has official apps fo
 - A speed history graph for the current sharing session
 - A diagnostics screen with a shareable log
 - A battery guard that can stop sharing at a level you choose
+
+**v1.2.0**
+
+- Approve-new-device mode, with Approve and Deny on the notification itself
+- A Control Center and Lock Screen control (iOS 18), plus Start and Stop buttons in the widget
+- Per-device download and upload speed limits
+- A billing cycle with a monthly cap, an 80% warning and a pause at 100%
+- Per-day usage history with a chart and a CSV export
+- Encrypted backup and restore
+- A session summary when sharing stops
+- Timed pauses: 15 minutes, 1 hour, until tomorrow, or until resumed
+- An Apple Watch companion (status and Stop), and the Live Activity in the watch Smart Stack
+- One-time guest codes: one device, 10 minutes to use, 4 hours of access
 
 Nothing further is announced yet. Ideas are welcome in [Issues](https://github.com/c12n/ferry/issues).
 
