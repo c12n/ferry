@@ -58,7 +58,7 @@ final class AccessControlTests: XCTestCase {
         XCTAssertEqual(block(pausedUntil: .distantFuture, capBytes: 1, usedToday: 1,
                              monthlyCapReached: true), .paused(until: .distantFuture))
         XCTAssertEqual(block(capBytes: 1, usedToday: 1, monthlyCapReached: true), .dailyCap)
-        XCTAssertEqual(block(monthlyCapReached: true, guestAccessExpiresAt: now), .monthlyCap)
+        XCTAssertEqual(block(guestAccessExpiresAt: now, monthlyCapReached: true), .monthlyCap)
     }
 
     func testStartOfNextDayIsTheNextLocalMidnight() {
