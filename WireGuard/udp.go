@@ -7,6 +7,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"golang.org/x/time/rate"
 	"gvisor.dev/gvisor/pkg/buffer"
 	"gvisor.dev/gvisor/pkg/tcpip"
 	"gvisor.dev/gvisor/pkg/tcpip/checksum"
@@ -33,6 +34,10 @@ type cone struct {
 	out  chan outgoing
 	done chan struct{}
 	last atomic.Int64 // when a packet last went either way, in UnixNano
+	// upLim and downLim are the owner's speed limiters, set at creation and replaced by
+	// SetPolicies when they change. Over the limit a packet is dropped, never queued: UDP
+	// has no flow control to slow down with.
+	upLim, downLim atomic.Pointer[rate.Limiter]
 	// dnsOnly holds while every packet has gone to port 53. Such a cone idles out after dnsIdle.
 	dnsOnly atomic.Bool
 	once    sync.Once
@@ -93,8 +98,12 @@ func (s *Server) cone(device netip.AddrPort) *cone {
 	s.mu.Lock()
 	c := s.cones[device]
 	owner := s.ownerLocked(device.Addr())
+	pol := s.policies[owner]
 	full := len(s.cones) >= s.maxCones
 	s.mu.Unlock()
+	if pol.stopsTraffic(s.now()) {
+		return nil // paused, capped or waiting for approval: no new flows. SetPolicies closed the old ones.
+	}
 	if c != nil {
 		if c.owner != owner {
 			return nil // SetPeers is closing it: the address belongs to someone else now
@@ -109,6 +118,10 @@ func (s *Server) cone(device netip.AddrPort) *cone {
 		return nil
 	}
 	c = &cone{device: device, owner: owner, conn: conn, out: make(chan outgoing, 256), done: make(chan struct{}), lock: &s.mu}
+	if pol != nil {
+		c.upLim.Store(pol.up)
+		c.downLim.Store(pol.down)
+	}
 	c.last.Store(time.Now().UnixNano())
 	c.dnsOnly.Store(true) // until handleUDP's sentTo sees a packet to another port, the first one included
 	s.mu.Lock()
@@ -151,6 +164,9 @@ func (s *Server) send(c *cone) {
 		case <-c.done:
 			return
 		}
+		if lim := c.upLim.Load(); lim != nil && !lim.AllowN(time.Now(), len(o.payload)) {
+			continue // over the device's limit: dropped, like a slow link drops UDP
+		}
 		s.countPeer(c.owner, true, len(o.payload))
 		if _, err := c.conn.WriteToUDPAddrPort(o.payload, s.toNet(o.dst)); err == nil {
 			c.last.Store(time.Now().UnixNano())
@@ -175,6 +191,9 @@ func (s *Server) receive(c *cone) {
 		src := s.fromNet(netip.AddrPortFrom(from.Addr().Unmap(), from.Port()))
 		if !src.Addr().Is4() {
 			continue
+		}
+		if lim := c.downLim.Load(); lim != nil && !lim.AllowN(time.Now(), n) {
+			continue // over the device's limit: dropped before it is counted or delivered
 		}
 		s.countPeer(c.owner, false, n)
 		packets := replyPackets(src, c.device, buf[:n], s.nextID())

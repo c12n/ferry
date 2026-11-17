@@ -400,12 +400,14 @@ func TestAddingADeviceKeepsTheOthersConnected(t *testing.T) {
 }
 
 func TestLocalDestinationsStayInside(t *testing.T) {
-	for _, a := range []string{"127.0.0.1", "224.0.0.251", "239.255.255.250", "255.255.255.255", "169.254.1.1", "10.7.0.3", "0.0.0.0", "::1", "ff02::fb"} {
+	for _, a := range []string{"127.0.0.1", "224.0.0.251", "239.255.255.250", "255.255.255.255", "169.254.1.1", "10.7.0.3", "0.0.0.0", "::1", "ff02::fb",
+		// The hotspot's subnet: the iPhone itself and its neighbours on it.
+		"172.20.10.1", "172.20.10.2", "172.20.10.14"} {
 		if forwardable(netip.MustParseAddr(a)) {
 			t.Errorf("%s should stay inside", a)
 		}
 	}
-	for _, a := range []string{"1.1.1.1", "172.20.10.1", "2606:4700::1111"} {
+	for _, a := range []string{"1.1.1.1", "172.20.10.16", "172.20.11.1", "2606:4700::1111"} {
 		if !forwardable(netip.MustParseAddr(a)) {
 			t.Errorf("%s should go out", a)
 		}
@@ -1082,5 +1084,169 @@ func TestARemovedDevicesAddressDoesntFallToTheRouter(t *testing.T) {
 		if v, ok := strings.CutPrefix(line, "allowed_ip="); ok && netip.MustParsePrefix(v).Contains(device.Address) {
 			t.Fatalf("the router's %s still covers the removed device's address", v)
 		}
+	}
+}
+
+// The 1.2 policies: approval, timed pauses, caps as blocked states, speed limits.
+
+func TestAPendingDevicePassesNoTrafficUntilApproved(t *testing.T) {
+	s, c := setup(t)
+	addr := netip.MustParseAddr("10.7.0.2")
+	s.SetPolicies([]PeerPolicy{{Address: addr, NoForward: true}})
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if _, err := c.net.DialContext(ctx, "tcp", tcpServer(t, 10)); err == nil {
+		t.Fatal("a device waiting for approval got traffic through")
+	}
+	// Approving it lets traffic through, with no SetPeers in between: only the
+	// policy changed, and apply rewrote the device with its allowed IPs.
+	s.SetPolicies([]PeerPolicy{{Address: addr}})
+	if _, err := fetch(t, c, tcpServer(t, 10)); err != nil {
+		t.Fatalf("an approved device got nothing: %v", err)
+	}
+}
+
+func TestAPausedDeviceIsBlockedUntilItsTime(t *testing.T) {
+	s, c := setup(t)
+	addr := netip.MustParseAddr("10.7.0.2")
+	until := time.Now().Add(time.Hour)
+	s.SetPolicies([]PeerPolicy{{Address: addr, PausedUntil: until.Unix()}})
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if _, err := c.net.DialContext(ctx, "tcp", tcpServer(t, 10)); err == nil {
+		t.Fatal("a paused device got through")
+	}
+	// The pause ends by time passing alone: nothing re-adds the device.
+	s.now = func() time.Time { return until.Add(time.Second) }
+	if _, err := fetch(t, c, tcpServer(t, 10)); err != nil {
+		t.Fatalf("the pause didn't end at its time: %v", err)
+	}
+}
+
+func TestABlockedDeviceLosesItsConnectionsAndItsUDP(t *testing.T) {
+	s, c := setup(t)
+	addr := netip.MustParseAddr("10.7.0.2")
+	// A held-open TCP connection, like TestRemovingADeviceClosesItsConnections.
+	l, _ := net.Listen("tcp", "127.0.0.1:0")
+	t.Cleanup(func() { l.Close() })
+	go func() {
+		for {
+			conn, err := l.Accept()
+			if err != nil {
+				return
+			}
+			go func() { conn.Write([]byte("hi")); time.Sleep(time.Minute); conn.Close() }()
+		}
+	}()
+	conn, err := c.net.Dial("tcp", viaRemote(l.Addr().String()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	conn.SetDeadline(time.Now().Add(5 * time.Second))
+	if _, err := io.ReadFull(conn, make([]byte, 2)); err != nil {
+		t.Fatal(err)
+	}
+	udp, err := c.net.Dial("udp", udpEcho(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer udp.Close()
+	udp.SetDeadline(time.Now().Add(5 * time.Second))
+	if _, err := udp.Write([]byte("ping")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := udp.Read(make([]byte, 100)); err != nil {
+		t.Fatal(err)
+	}
+	s.SetPolicies([]PeerPolicy{{Address: addr, Blocked: true}})
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if s.tracked(addr) == 0 {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	if n := s.tracked(addr); n != 0 {
+		t.Fatalf("a blocked device still has %d open flows", n)
+	}
+	udp.SetDeadline(time.Now().Add(2 * time.Second))
+	if _, err := udp.Write([]byte("ping")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := udp.Read(make([]byte, 100)); err == nil {
+		t.Fatal("a blocked device's UDP still got through")
+	}
+}
+
+func TestClosePeerEndsAConnection(t *testing.T) {
+	s, c := setup(t)
+	addr := netip.MustParseAddr("10.7.0.2")
+	if _, err := fetch(t, c, tcpServer(t, 10)); err != nil {
+		t.Fatal(err)
+	}
+	l, _ := net.Listen("tcp", "127.0.0.1:0")
+	t.Cleanup(func() { l.Close() })
+	go func() {
+		for {
+			conn, err := l.Accept()
+			if err != nil {
+				return
+			}
+			go func() { conn.Write([]byte("hi")); time.Sleep(time.Minute); conn.Close() }()
+		}
+	}()
+	conn, err := c.net.Dial("tcp", viaRemote(l.Addr().String()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	conn.SetDeadline(time.Now().Add(5 * time.Second))
+	if _, err := io.ReadFull(conn, make([]byte, 2)); err != nil {
+		t.Fatal(err)
+	}
+	s.ClosePeer(addr)
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if s.tracked(addr) == 0 {
+			return
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	t.Fatal("the device's connection is still open after ClosePeer")
+}
+
+func TestASpeedLimitSlowsTCP(t *testing.T) {
+	s, c := setup(t)
+	addr := netip.MustParseAddr("10.7.0.2")
+	// 125,000 bytes a second down (1 Mbit/s). The burst is 64 KiB, so of 200 KB
+	// about 136 KB is throttled: a bit over a second. Unthrottled on loopback the
+	// same fetch takes milliseconds.
+	s.SetPolicies([]PeerPolicy{{Address: addr, DownBps: 125_000}})
+	start := time.Now()
+	n, err := fetch(t, c, tcpServer(t, 200_000))
+	elapsed := time.Since(start)
+	if err != nil || n != 200_000 {
+		t.Fatalf("got %d bytes, %v", n, err)
+	}
+	if elapsed < 500*time.Millisecond {
+		t.Fatalf("200 KB at 125,000 B/s took %v, the limit isn't holding", elapsed)
+	}
+}
+
+func TestMakeLimiter(t *testing.T) {
+	if makeLimiter(0) != nil {
+		t.Fatal("no limit should make no limiter")
+	}
+	// 1 Mbit/s: a quarter second is 31,250 bytes, under the 64 KiB floor.
+	if b := makeLimiter(125_000).Burst(); b != 64<<10 {
+		t.Fatalf("burst %d, want the 64 KiB floor", b)
+	}
+	// 50 Mbit/s: a quarter second is about 1.5 MB, over the 1 MiB cap.
+	if b := makeLimiter(6_250_000).Burst(); b != 1<<20 {
+		t.Fatalf("burst %d, want the 1 MiB cap", b)
+	}
+	if b := makeLimiter(1_250_000).Burst(); b != 312_500 {
+		t.Fatalf("burst %d, want a quarter second of the rate", b)
 	}
 }

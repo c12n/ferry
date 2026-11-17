@@ -8,6 +8,7 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"encoding/base64"
 	"encoding/hex"
 	"fmt"
@@ -23,6 +24,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"golang.org/x/time/rate"
 	"golang.zx2c4.com/wireguard/device"
 	"golang.zx2c4.com/wireguard/tun"
 	"gvisor.dev/gvisor/pkg/buffer"
@@ -75,6 +77,60 @@ func init() {
 type Peer struct {
 	PublicKey [32]byte
 	Address   netip.Addr
+}
+
+// PeerPolicy is one device's forwarding policy, set from Swift (see SetPolicies). The rules live
+// here, next to the counters, because only the forwarders can enforce them without racing the
+// traffic: a Swift-side check would always be a step behind the packets.
+type PeerPolicy struct {
+	Address netip.Addr
+	// NoForward: the device may handshake but passes no traffic (it is waiting for approval). It
+	// is configured with no allowed IPs, so wireguard-go drops its data packets at the source
+	// check. Its handshakes still show in the stats, which is how Swift notices it arrived.
+	NoForward bool
+	// Blocked: the device is configured normally, but the forwarders refuse its new connections
+	// and drop its UDP (a daily cap, the monthly cap, a guest pass that ended). Becoming blocked
+	// also closes its open connections, see SetPolicies.
+	Blocked bool
+	// PausedUntil is a Unix time until which the device is paused, 0 for no timed pause. The
+	// forwarders check it per new connection, so a pause ends by time passing, with nothing
+	// needing to run to end it.
+	PausedUntil int64
+	// Speed limits in bytes per second, 0 for no limit. Down is towards the device, up from it.
+	DownBps uint64
+	UpBps   uint64
+}
+
+// policy is a PeerPolicy with its rate limiters made. The limiters are never mutated after
+// creation (SetPolicies replaces them), so they can be used after the server's lock is dropped.
+type policy struct {
+	PeerPolicy
+	down, up *rate.Limiter
+}
+
+// stopsTraffic says whether the device's packets go nowhere right now.
+func (p *policy) stopsTraffic(now time.Time) bool {
+	if p == nil {
+		return false
+	}
+	return p.NoForward || p.Blocked || (p.PausedUntil > 0 && now.Unix() < p.PausedUntil)
+}
+
+func makeLimiter(bps uint64) *rate.Limiter {
+	if bps == 0 {
+		return nil
+	}
+	// The burst is a quarter second of the rate, at least 64 KiB so one copy-loop chunk always
+	// fits (WaitN refuses a chunk bigger than the burst), and at most 1 MiB, so a burst can't
+	// spend much memory.
+	burst := int(bps / 4)
+	if burst < 64<<10 {
+		burst = 64 << 10
+	}
+	if burst > 1<<20 {
+		burst = 1 << 20
+	}
+	return rate.NewLimiter(rate.Limit(bps), burst)
 }
 
 // routedNets are the addresses a router may send from besides its own: the private ranges a travel
@@ -170,6 +226,13 @@ type Server struct {
 	peers  map[[32]byte]netip.Addr // public key -> tunnel address
 	names  map[string]netip.Addr   // wireguard-go's name for a peer -> tunnel address, see peerName
 	router netip.Addr              // the router's tunnel address, invalid without one
+	// policies holds each device's forwarding policy, by tunnel address.
+	// noForwardApplied records which devices were last configured without allowed IPs, so apply
+	// rewrites a device when its approval changes. buffersClamped is whether gVisor's receive
+	// buffers are at the smaller sizes a speed limit needs, see setBufferSizes.
+	policies         map[netip.Addr]*policy
+	noForwardApplied map[netip.Addr]bool
+	buffersClamped   bool
 	// candidate is the latest device that sent for others, for the refresher to make the router.
 	// The latest one is kept, so none is lost while the refresher is busy.
 	candidate netip.Addr
@@ -187,10 +250,12 @@ type Server struct {
 // Start listens for WireGuard on host:port with the server's private key. Peers come from SetPeers.
 func Start(host netip.Addr, port int, privateKey [32]byte) (*Server, error) {
 	s := &Server{
-		peers:    map[[32]byte]netip.Addr{},
-		names:    map[string]netip.Addr{},
-		shaken:   map[netip.Addr]time.Time{},
-		now:      time.Now,
+		peers:            map[[32]byte]netip.Addr{},
+		names:            map[string]netip.Addr{},
+		policies:         map[netip.Addr]*policy{},
+		noForwardApplied: map[netip.Addr]bool{},
+		shaken:           map[netip.Addr]time.Time{},
+		now:              time.Now,
 		flows:    map[netip.Addr]map[io.Closer]struct{}{},
 		cones:    map[netip.AddrPort]*cone{},
 		maxCones: maxCones,
@@ -288,6 +353,112 @@ func (s *Server) SetPeers(peers []Peer) error {
 	}
 	s.mu.Unlock()
 	return s.apply(want, router)
+}
+
+// policyOf returns the device's current policy, nil without one.
+func (s *Server) policyOf(addr netip.Addr) *policy {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.policies[addr]
+}
+
+// SetPolicies replaces the devices' forwarding policies. A device that becomes blocked loses its
+// open connections at once, like a removed device does, so a pause or a cap stops its streams,
+// not only its next connection. A device whose approval changed is reconfigured, since approval
+// is wireguard-go's allowed IPs, see apply.
+func (s *Server) SetPolicies(list []PeerPolicy) {
+	next := make(map[netip.Addr]*policy, len(list))
+	anyLimit := false
+	for _, p := range list {
+		next[p.Address] = &policy{PeerPolicy: p, down: makeLimiter(p.DownBps), up: makeLimiter(p.UpBps)}
+		anyLimit = anyLimit || p.DownBps > 0 || p.UpBps > 0
+	}
+	now := s.now()
+	s.mu.Lock()
+	old := s.policies
+	s.policies = next
+	var closing []netip.Addr
+	for addr, p := range next {
+		if p.stopsTraffic(now) && !old[addr].stopsTraffic(now) {
+			closing = append(closing, addr)
+		}
+		// A live UDP cone picks up its owner's new limiters at once. TCP connections
+		// keep the limiters they started with.
+		for _, c := range s.cones {
+			if c.owner == addr {
+				c.upLim.Store(p.up)
+				c.downLim.Store(p.down)
+			}
+		}
+	}
+	clamp := anyLimit && !s.buffersClamped
+	unclamp := !anyLimit && s.buffersClamped
+	if clamp || unclamp {
+		s.buffersClamped = anyLimit
+	}
+	s.mu.Unlock()
+	for _, addr := range closing {
+		s.ClosePeer(addr)
+	}
+	if clamp {
+		s.setBufferSizes(true)
+	} else if unclamp {
+		s.setBufferSizes(false)
+	}
+	approvalChanged := false
+	for addr, p := range next {
+		if (old[addr] != nil && old[addr].NoForward) != p.NoForward {
+			approvalChanged = true
+		}
+	}
+	for addr, p := range old {
+		if next[addr] == nil && p.NoForward {
+			approvalChanged = true
+		}
+	}
+	if approvalChanged {
+		s.applying.Lock()
+		s.mu.Lock()
+		want := make(map[[32]byte]netip.Addr, len(s.peers))
+		for key, addr := range s.peers {
+			want[key] = addr
+		}
+		router := s.router
+		s.mu.Unlock()
+		// A failed apply is retried by the next SetPeers; the policies stay saved either way.
+		_ = s.apply(want, router)
+		s.applying.Unlock()
+	}
+}
+
+// ClosePeer closes the device's open connections and UDP flows at once.
+func (s *Server) ClosePeer(addr netip.Addr) {
+	s.mu.Lock()
+	var closing []io.Closer
+	for c := range s.flows[addr] {
+		closing = append(closing, c)
+	}
+	s.mu.Unlock()
+	for _, c := range closing {
+		c.Close()
+	}
+}
+
+// setBufferSizes clamps gVisor's per-connection receive buffer while any speed limit is on.
+// Throttled flows hold data in these buffers, and at the default sizes a few busy devices could
+// grow the app past its memory limit. The defaults in Start come back when no limit is left.
+func (s *Server) setBufferSizes(clamped bool) {
+	if clamped {
+		recv := tcpip.TCPReceiveBufferSizeRangeOption{Min: 4 << 10, Default: 256 << 10, Max: 1 << 20}
+		moderate := tcpip.TCPModerateReceiveBufferOption(false)
+		s.stack.SetTransportProtocolOption(tcp.ProtocolNumber, &recv)
+		s.stack.SetTransportProtocolOption(tcp.ProtocolNumber, &moderate)
+		return
+	}
+	recv := tcpip.TCPReceiveBufferSizeRangeOption{Min: 4 << 10, Default: 256 << 10, Max: 2 << 20}
+	moderate := tcpip.TCPModerateReceiveBufferOption(true)
+	s.stack.SetTransportProtocolOption(tcp.ProtocolNumber, &recv)
+	s.stack.SetTransportProtocolOption(tcp.ProtocolNumber, &moderate)
 }
 
 // makeRouter gives the private ranges to the device at addr. It takes them from the router before
@@ -398,6 +569,13 @@ func peerName(key [32]byte) string {
 func (s *Server) apply(want map[[32]byte]netip.Addr, router netip.Addr) error {
 	s.mu.Lock()
 	have, wasRouter := s.peers, s.router
+	noForward := make(map[netip.Addr]bool, len(s.policies))
+	for addr, p := range s.policies {
+		if p.NoForward {
+			noForward[addr] = true
+		}
+	}
+	appliedNoForward := s.noForwardApplied
 	s.mu.Unlock()
 	var b strings.Builder
 	for key := range have {
@@ -407,8 +585,12 @@ func (s *Server) apply(want map[[32]byte]netip.Addr, router netip.Addr) error {
 	}
 	for key, addr := range want {
 		isRouter := addr == router
-		if old, ok := have[key]; !ok || old != addr || (old == wasRouter) != isRouter {
-			fmt.Fprintf(&b, "public_key=%s\nreplace_allowed_ips=true\nallowed_ip=%s\n", hex.EncodeToString(key[:]), netip.PrefixFrom(addr, addr.BitLen()))
+		if old, ok := have[key]; !ok || old != addr || (old == wasRouter) != isRouter || noForward[addr] != appliedNoForward[addr] {
+			fmt.Fprintf(&b, "public_key=%s\nreplace_allowed_ips=true\n", hex.EncodeToString(key[:]))
+			if noForward[addr] {
+				continue // handshakes only: no allowed IPs, so no data packet gets through
+			}
+			fmt.Fprintf(&b, "allowed_ip=%s\n", netip.PrefixFrom(addr, addr.BitLen()))
 			if isRouter {
 				for _, n := range routedNets {
 					fmt.Fprintf(&b, "allowed_ip=%s\n", n)
@@ -447,6 +629,9 @@ func (s *Server) apply(want map[[32]byte]netip.Addr, router netip.Addr) error {
 			return err
 		}
 	}
+	s.mu.Lock()
+	s.noForwardApplied = noForward
+	s.mu.Unlock()
 	s.readHandshakes()
 	return nil
 }
@@ -541,15 +726,21 @@ func (s *Server) readHandshakes() {
 }
 
 // forwardable says whether a device may reach dst through the iPhone. The iPhone's own loopback,
-// the tunnel's addresses, multicast and broadcast stay inside: an mDNS query from the iPad would
-// otherwise become a flow spraying multicast from the iPhone.
+// the tunnel's addresses, the hotspot's subnet, multicast and broadcast stay inside: an mDNS
+// query from the iPad would otherwise become a flow spraying multicast from the iPhone, and a
+// packet for the hotspot would reach the phone itself or a neighbouring device, which belong on
+// the hotspot, not in the tunnel.
 func forwardable(dst netip.Addr) bool {
 	return dst.IsValid() && !dst.IsLoopback() && !dst.IsMulticast() && !dst.IsUnspecified() &&
 		!dst.IsLinkLocalUnicast() && dst != netip.AddrFrom4([4]byte{255, 255, 255, 255}) &&
-		!tunnelNet.Contains(dst)
+		!tunnelNet.Contains(dst) && !hotspotNet.Contains(dst)
 }
 
 var tunnelNet = netip.MustParsePrefix("10.7.0.0/24")
+
+// hotspotNet is the hotspot's own subnet: the iPhone is .1 and the other devices on it are the
+// rest. None of it is forwardable, see forwardable.
+var hotspotNet = netip.MustParsePrefix("172.20.10.0/28")
 
 // owner is the tunnel address whose traffic a packet from src is: its own for a device, the
 // router's for a device behind it. wireguard-go only takes routedNets sources from the router, so
@@ -644,7 +835,8 @@ func (s *Server) forwardTCP(r *tcp.ForwarderRequest) {
 	src := addrPort(id.RemoteAddress, 0).Addr()
 	device := s.owner(src)
 	dst := addrPort(id.LocalAddress, id.LocalPort)
-	if !device.IsValid() || !forwardable(dst.Addr()) {
+	pol := s.policyOf(device)
+	if !device.IsValid() || !forwardable(dst.Addr()) || pol.stopsTraffic(s.now()) {
 		r.Complete(true)
 		return
 	}
@@ -668,20 +860,32 @@ func (s *Server) forwardTCP(r *tcp.ForwarderRequest) {
 	ep.SetSockOpt(&interval)
 	ep.SetSockOptInt(tcpip.KeepaliveCountOption, 4)
 	in := gonet.NewTCPConn(&wq, ep)
-	closeBoth := func() { in.Close(); out.Close() }
+	// done cancels a rate limiter's wait when the connection ends: without it a throttled copy
+	// could sit in WaitN long after both sockets closed.
+	done := make(chan struct{})
+	var doneOnce sync.Once
+	closeBoth := func() {
+		doneOnce.Do(func() { close(done) })
+		in.Close()
+		out.Close()
+	}
 	untrack, ok := s.track(src, device, in, out)
 	if !ok {
 		closeBoth()
 		return
 	}
 	defer untrack()
+	var upLim, downLim *rate.Limiter
+	if pol != nil {
+		upLim, downLim = pol.up, pol.down
+	}
 	var wg sync.WaitGroup
 	wg.Add(2)
 	// A clean end of one direction passes on as a half close. Anything else, a reset or keepalive
 	// giving up, ends both, or the other direction could wait forever on a silent peer.
 	go func() {
 		defer wg.Done()
-		if err := s.copy(out, in, true, device); err != io.EOF {
+		if err := s.copyLimited(out, in, true, device, upLim, done); err != io.EOF {
 			closeBoth()
 		} else if c, ok := out.(interface{ CloseWrite() error }); ok {
 			c.CloseWrite()
@@ -689,7 +893,7 @@ func (s *Server) forwardTCP(r *tcp.ForwarderRequest) {
 	}()
 	go func() {
 		defer wg.Done()
-		if err := s.copy(in, out, false, device); err != io.EOF {
+		if err := s.copyLimited(in, out, false, device, downLim, done); err != io.EOF {
 			closeBoth()
 		} else {
 			in.CloseWrite()
@@ -702,10 +906,39 @@ func (s *Server) forwardTCP(r *tcp.ForwarderRequest) {
 // copy moves one direction of a TCP connection and counts it (to the server's totals and
 // the device's), until an error. A clean end returns io.EOF.
 func (s *Server) copy(dst io.Writer, src io.Reader, up bool, device netip.Addr) error {
-	buf := make([]byte, 65536)
+	return s.copyLimited(dst, src, up, device, nil, nil)
+}
+
+// copyLimited is copy under a speed limit: each chunk waits for the limiter before it is
+// counted and written, so the counted rate is the limited rate. done ends the wait when the
+// connection closes. A nil limiter is copy itself.
+func (s *Server) copyLimited(dst io.Writer, src io.Reader, up bool, device netip.Addr, lim *rate.Limiter, done <-chan struct{}) error {
+	size := 65536
+	if lim != nil && lim.Burst() < size {
+		size = lim.Burst() // WaitN refuses a chunk bigger than the burst
+	}
+	buf := make([]byte, size)
+	var ctx context.Context
+	var cancel context.CancelFunc
+	if lim != nil {
+		ctx, cancel = context.WithCancel(context.Background())
+		defer cancel()
+		go func() {
+			select {
+			case <-done:
+				cancel()
+			case <-ctx.Done():
+			}
+		}()
+	}
 	for {
 		n, err := src.Read(buf)
 		if n > 0 {
+			if lim != nil {
+				if werr := lim.WaitN(ctx, n); werr != nil {
+					return werr
+				}
+			}
 			s.countPeer(device, up, n)
 			if _, werr := dst.Write(buf[:n]); werr != nil {
 				return werr

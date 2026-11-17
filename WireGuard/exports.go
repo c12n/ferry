@@ -135,6 +135,64 @@ func parsePeers(keys []byte, addresses string) ([]Peer, error) {
 	return peers, nil
 }
 
+// policyJSON is one device's policy as Swift sends it, see PeerPolicy in server.go.
+type policyJSON struct {
+	Address     string `json:"address"`
+	NoForward   bool   `json:"noForward"`
+	Blocked     bool   `json:"blocked"`
+	PausedUntil int64  `json:"pausedUntil"`
+	DownBps     uint64 `json:"downBps"`
+	UpBps       uint64 `json:"upBps"`
+}
+
+// TetherWGSetPolicies replaces the devices' forwarding policies: approval, pauses and caps as
+// blocked states, and speed limits. policies is a JSON array of policyJSON.
+//
+//export TetherWGSetPolicies
+func TetherWGSetPolicies(policies *C.char) (result *C.char) {
+	defer survive(&result)
+	mu.Lock()
+	defer mu.Unlock()
+	if server == nil {
+		return nil
+	}
+	if policies == nil {
+		return C.CString("no policies")
+	}
+	var decoded []policyJSON
+	if err := json.Unmarshal([]byte(C.GoString(policies)), &decoded); err != nil {
+		return cerr(err)
+	}
+	list := make([]PeerPolicy, 0, len(decoded))
+	for _, p := range decoded {
+		addr, err := netip.ParseAddr(p.Address)
+		if err != nil {
+			return cerr(err)
+		}
+		list = append(list, PeerPolicy{Address: addr, NoForward: p.NoForward, Blocked: p.Blocked,
+			PausedUntil: p.PausedUntil, DownBps: p.DownBps, UpBps: p.UpBps})
+	}
+	server.SetPolicies(list)
+	return nil
+}
+
+// TetherWGClosePeer closes a device's open connections at once.
+//
+//export TetherWGClosePeer
+func TetherWGClosePeer(address *C.char) {
+	mu.Lock()
+	defer mu.Unlock()
+	if server == nil || address == nil {
+		return
+	}
+	defer func() { _ = recover() }() // no error to return, see TetherWGStop
+	addr, err := netip.ParseAddr(C.GoString(address))
+	if err != nil {
+		return
+	}
+	server.ClosePeer(addr)
+}
+
 // TetherWGFreeMemory gives memory the GC has freed back to iOS. Swift calls it on a memory warning.
 //
 //export TetherWGFreeMemory
