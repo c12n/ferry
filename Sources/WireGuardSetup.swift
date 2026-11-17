@@ -637,3 +637,18 @@ final class WireGuardDevices {
         try secrets.save(JSONEncoder().encode(setup))
     }
 }
+
+extension WireGuardSetup {
+    /// Hand-written, like Peer's, and in an extension so the memberwise
+    /// initializer stays: a setup saved before `deniedKeys` existed (every
+    /// 1.0/1.1 install) has no such key, and the synthesized decoder refuses a
+    /// missing key even when the property declares a default, which would have
+    /// lost every paired device on the 1.2 upgrade. Encoding stays synthesized.
+    init(from decoder: Decoder) throws {
+        let box = try decoder.container(keyedBy: CodingKeys.self)
+        serverPrivateKey = try box.decode(Data.self, forKey: .serverPrivateKey)
+        peers = try box.decode([Peer].self, forKey: .peers)
+        ready = try box.decodeIfPresent(Peer.self, forKey: .ready)
+        deniedKeys = try box.decodeIfPresent([Data].self, forKey: .deniedKeys) ?? []
+    }
+}
