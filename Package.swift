@@ -7,7 +7,7 @@ let package = Package(
     name: "Tether",
     platforms: [.macOS(.v14), .iOS(.v17)],
     targets: [
-        .target(name: "TetherCore", dependencies: ["TetherWG"], path: "Sources", sources: ["Traffic.swift", "WireGuardSetup.swift", "WireGuardServer.swift", "AppExpiry.swift", "KeepAlivePolicy.swift", "Format.swift", "ShortcutReply.swift", "Usage.swift", "WidgetSnapshot.swift", "BatteryGuard.swift"]),
+        .target(name: "TetherCore", dependencies: ["TetherWG"], path: "Sources", sources: ["Traffic.swift", "WireGuardSetup.swift", "WireGuardServer.swift", "AppExpiry.swift", "KeepAlivePolicy.swift", "Format.swift", "ShortcutReply.swift", "Usage.swift", "WidgetSnapshot.swift", "BatteryGuard.swift", "AccessControl.swift", "BillingCycle.swift", "UsageHistory.swift", "UsageCSV.swift", "Backup.swift", "SessionRecord.swift"]),
         .binaryTarget(name: "TetherWG", path: "WireGuard/build/TetherWG.xcframework"),
         .testTarget(name: "TetherTests", dependencies: ["TetherCore"], path: "Tests"),
     ]

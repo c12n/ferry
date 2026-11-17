@@ -93,6 +93,12 @@ struct UsageTracker: Codable, Equatable {
     func todayUsage(for key: String) -> DeviceUsage { today[key] ?? DeviceUsage() }
     func allTimeUsage(for key: String) -> DeviceUsage { allTime[key] ?? DeviceUsage() }
 
+    /// Every device key with any record, for the 1.2 migration to the per-day
+    /// history (see UsageHistory.migrating).
+    var recordedKeys: Set<String> {
+        Set(session.keys).union(today.keys).union(allTime.keys)
+    }
+
     /// Every device's usage added together, for the main screen's totals.
     func sessionTotal() -> DeviceUsage { session.values.reduce(DeviceUsage()) { $0 + $1 } }
     func todayTotal() -> DeviceUsage { today.values.reduce(DeviceUsage()) { $0 + $1 } }
@@ -134,5 +140,11 @@ enum UsageStore {
         if let data = try? JSONEncoder().encode(tracker) {
             defaults.set(data, forKey: key)
         }
+    }
+
+    /// After the 1.2 migration to the per-day history, so the totals can't be
+    /// migrated twice. Called only once the history has been saved.
+    static func clear(from defaults: UserDefaults = .standard) {
+        defaults.removeObject(forKey: key)
     }
 }

@@ -17,12 +17,24 @@ struct WireGuardSetup: Codable, Equatable {
     static let dns = "1.1.1.1"
     private static let subnet = "10.7.0."
 
-    /// Why a device can't pass traffic right now, though it stays paired.
-    enum PauseReason: String, Codable {
-        /// The person paused it on the device's screen.
-        case manual
-        /// Its data cap for today was reached. Lifts by itself tomorrow.
-        case cap
+    /// Whether a device may pass traffic without asking first. Devices paired before
+    /// approval mode existed are `.approved`; a device that connects while approval mode
+    /// is on waits as `.pending` until the person approves it (see AccessControl). There
+    /// is no saved "denied" state: denying a device removes it and denies its key.
+    enum Approval: String, Codable {
+        case pending, approved
+    }
+
+    /// A one-time guest pass: a QR code made for one device, usable once. The device's
+    /// private key is never saved (see `addGuestPass`), so the code can't be shown again
+    /// or backed up; these dates are all that persists.
+    struct GuestPass: Codable, Hashable {
+        /// An unused code stops working at this date, minutes after it was made.
+        var qrExpiresAt: Date
+        /// Access ends at this date, used or not.
+        var accessExpiresAt: Date
+        /// When a device first connected with the code. Nil while unused.
+        var consumedAt: Date?
     }
 
     /// What a device is, picked on its screen; only its list icon depends on it.
@@ -54,29 +66,57 @@ struct WireGuardSetup: Codable, Equatable {
     struct Peer: Codable, Hashable, Identifiable {
         var id = UUID()
         var name: String
-        /// Kept so the device's QR code can be shown again. It's only ever used inside the tunnel.
+        /// The device's key, kept so its QR code can be shown again, until the device
+        /// first connects: from then on it is blanked (see `claimReady`), so a saved
+        /// setup, and any backup of it, holds no client keys. A guest pass's key is
+        /// never saved at all. It's only ever used inside the tunnel.
         var privateKey: Data
         var publicKey: Data
         var address: String
         /// A guest device is removed for good at this date. Nil is permanent access.
         var expiresAt: Date?
-        /// A paused device keeps its key and settings but isn't in the server's peer list,
-        /// so nothing it sends gets through.
-        var paused = false
-        var pauseReason: PauseReason?
+        /// The device is paused until this date; `.distantFuture` is "until resumed by
+        /// hand". Nil is not paused. Only the date persists, so a timed pause ends by
+        /// time passing, with nothing needing to run (see AccessControl).
+        var pausedUntil: Date?
+        /// Whether the device may pass traffic without being approved first.
+        var approval: Approval = .approved
         /// The most the device may use today, up and down together, in bytes. Nil is no cap.
-        /// Reaching it pauses the device (reason `.cap`) until tomorrow.
+        /// Reaching it blocks the device until tomorrow (see AccessControl); the block
+        /// is worked out from usage, never stored.
         var capBytes: UInt64?
+        /// Speed limits in bytes per second: down is to the device, up is from it.
+        /// Nil is no limit. Enforced where the traffic is forwarded, in WireGuard/.
+        var downLimitBps: UInt64?
+        var upLimitBps: UInt64?
         /// What the device is, for its list icon. `.other` until someone picks.
         var kind: Kind = .other
+        /// Set for a one-time guest pass device (see `addGuestPass`).
+        var guestPass: GuestPass?
 
-        /// Has the guest's time run out by `now`?
+        /// Has the guest's time run out by `now`? A guest pass that was used stops at
+        /// its access date, like a guest's own date.
         func isExpired(now: Date) -> Bool {
-            expiresAt.map { $0 <= now } ?? false
+            if expiresAt.map({ $0 <= now }) ?? false { return true }
+            if let pass = guestPass, pass.consumedAt != nil, pass.accessExpiresAt <= now { return true }
+            return false
+        }
+
+        /// Paused at `now`: a pause whose date has passed is over by itself.
+        func isPaused(now: Date) -> Bool {
+            pausedUntil.map { $0 > now } ?? false
+        }
+
+        /// A short fingerprint of the public key, the first four bytes as hex. A
+        /// notification action carries it, so acting on a stale notification for a
+        /// device whose key has since changed does nothing.
+        var keyFingerprint: String {
+            publicKey.prefix(4).map { String(format: "%02x", $0) }.joined()
         }
 
         private enum CodingKeys: String, CodingKey {
-            case id, name, privateKey, publicKey, address, expiresAt, paused, pauseReason, capBytes, kind
+            case id, name, privateKey, publicKey, address, expiresAt, paused, pauseReason, pausedUntil
+            case approval, capBytes, downLimitBps, upLimitBps, kind, guestPass
         }
 
         /// Setups saved before guests, pausing and caps existed have none of those keys, and
@@ -91,15 +131,28 @@ struct WireGuardSetup: Codable, Equatable {
             publicKey = try box.decode(Data.self, forKey: .publicKey)
             address = try box.decode(String.self, forKey: .address)
             expiresAt = try box.decodeIfPresent(Date.self, forKey: .expiresAt)
-            paused = try box.decodeIfPresent(Bool.self, forKey: .paused) ?? false
-            pauseReason = try box.decodeIfPresent(PauseReason.self, forKey: .pauseReason)
+            pausedUntil = try box.decodeIfPresent(Date.self, forKey: .pausedUntil)
+            if pausedUntil == nil {
+                // Setups saved before timed pauses kept a flag and a reason. A manual
+                // pause stays a pause with no end date. A data-cap pause is not carried
+                // over: caps are worked out from usage now, not stored, so a device
+                // still over its cap today is blocked by the cap itself, and only today.
+                let wasPaused = try box.decodeIfPresent(Bool.self, forKey: .paused) ?? false
+                let reason = try box.decodeIfPresent(String.self, forKey: .pauseReason)
+                if wasPaused, reason != "cap" { pausedUntil = .distantFuture }
+            }
+            approval = try box.decodeIfPresent(Approval.self, forKey: .approval) ?? .approved
             capBytes = try box.decodeIfPresent(UInt64.self, forKey: .capBytes)
+            downLimitBps = try box.decodeIfPresent(UInt64.self, forKey: .downLimitBps)
+            upLimitBps = try box.decodeIfPresent(UInt64.self, forKey: .upLimitBps)
             kind = try box.decodeIfPresent(Kind.self, forKey: .kind) ?? .other
+            guestPass = try box.decodeIfPresent(GuestPass.self, forKey: .guestPass)
         }
 
         /// Hand-written with the decoder (a custom `init(from:)` in the body stops the
         /// synthesized Codable pair, so both halves are here). Optionals encode only
-        /// when set, as the synthesized one would have done.
+        /// when set, as the synthesized one would have done. The old `paused` flag is
+        /// still written, so an older Ferry reading this setup sees the pause too.
         func encode(to encoder: Encoder) throws {
             var box = encoder.container(keyedBy: CodingKeys.self)
             try box.encode(id, forKey: .id)
@@ -108,25 +161,33 @@ struct WireGuardSetup: Codable, Equatable {
             try box.encode(publicKey, forKey: .publicKey)
             try box.encode(address, forKey: .address)
             try box.encodeIfPresent(expiresAt, forKey: .expiresAt)
-            try box.encode(paused, forKey: .paused)
-            try box.encodeIfPresent(pauseReason, forKey: .pauseReason)
+            try box.encode(pausedUntil != nil, forKey: .paused)
+            try box.encodeIfPresent(pausedUntil, forKey: .pausedUntil)
+            try box.encode(approval, forKey: .approval)
             try box.encodeIfPresent(capBytes, forKey: .capBytes)
+            try box.encodeIfPresent(downLimitBps, forKey: .downLimitBps)
+            try box.encodeIfPresent(upLimitBps, forKey: .upLimitBps)
             try box.encode(kind, forKey: .kind)
+            try box.encodeIfPresent(guestPass, forKey: .guestPass)
         }
 
         init(id: UUID = UUID(), name: String, privateKey: Data, publicKey: Data, address: String,
-             expiresAt: Date? = nil, paused: Bool = false, pauseReason: PauseReason? = nil,
-             capBytes: UInt64? = nil, kind: Kind = .other) {
+             expiresAt: Date? = nil, pausedUntil: Date? = nil, approval: Approval = .approved,
+             capBytes: UInt64? = nil, downLimitBps: UInt64? = nil, upLimitBps: UInt64? = nil,
+             kind: Kind = .other, guestPass: GuestPass? = nil) {
             self.id = id
             self.name = name
             self.privateKey = privateKey
             self.publicKey = publicKey
             self.address = address
             self.expiresAt = expiresAt
-            self.paused = paused
-            self.pauseReason = pauseReason
+            self.pausedUntil = pausedUntil
+            self.approval = approval
             self.capBytes = capBytes
+            self.downLimitBps = downLimitBps
+            self.upLimitBps = upLimitBps
             self.kind = kind
+            self.guestPass = guestPass
         }
     }
 
@@ -137,11 +198,19 @@ struct WireGuardSetup: Codable, Equatable {
     /// it in, and the first time it connects it joins `peers` and a new one takes its place. Nil
     /// only in a setup saved before there was one, or with all 253 addresses taken.
     var ready: Peer?
+    /// Public keys that must never be let in again: a device that was denied, a guest
+    /// pass code that lapsed unused. Checked wherever a device could come back, above
+    /// all when a backup is restored (see Backup.swift).
+    var deniedKeys: [Data] = []
 
-    /// Everyone the server lets in: the devices that aren't paused, and whoever scans the
-    /// QR code next. A guest whose time is up is taken out of `peers` itself (see Model),
-    /// so it isn't filtered here.
-    var serverPeers: [Peer] { peers.filter { !$0.paused } + (ready.map { [$0] } ?? []) }
+    /// Everyone the server lets in: every paired device, and whoever scans the QR code
+    /// next. Who may actually pass traffic is a separate question, answered per device
+    /// by AccessControl and enforced by the server's policies (see WireGuardServer):
+    /// a paused device stays in the server, so its pause can end by time passing, and
+    /// an unapproved device stays too, so its arrival shows as a handshake, without
+    /// either ever losing its place. A guest whose time is up is taken out of `peers`
+    /// itself (see Model), so it isn't filtered here.
+    var serverPeers: [Peer] { peers + (ready.map { [$0] } ?? []) }
 
     var serverPublicKey: Data { Self.publicKey(of: serverPrivateKey) }
 
@@ -169,9 +238,14 @@ struct WireGuardSetup: Codable, Equatable {
 
     /// The ready device connected for the first time from `address`: it's listed from now on, and
     /// a new one is ready for the next device. False when `address` isn't the ready device's.
-    mutating func claimReady(address: String) -> Bool {
+    /// With approval mode on, the claimed device starts out `.pending` (see AccessControl).
+    mutating func claimReady(address: String, approval: Approval = .approved) -> Bool {
         guard var peer = ready, peer.address == address else { return false }
         peer.name = freeName("Device")
+        peer.approval = approval
+        // The code has been scanned and used; the key has done its job. Blank it, so
+        // the saved setup holds no client keys (see Peer.privateKey).
+        peer.privateKey = Data()
         peers.append(peer)
         ready = nil
         prepareReady()
@@ -191,11 +265,24 @@ struct WireGuardSetup: Codable, Equatable {
         peers.removeAll { $0.id == id }
     }
 
-    /// Pauses or resumes a device. Resuming clears the reason; pausing by hand is `.manual`.
-    mutating func setPeerPaused(_ id: Peer.ID, _ paused: Bool, reason: PauseReason = .manual) {
+    /// Pauses a device until `until` (`.distantFuture` is until resumed by hand), or
+    /// resumes it with nil.
+    mutating func setPeerPausedUntil(_ id: Peer.ID, _ until: Date?) {
         guard let i = peers.firstIndex(where: { $0.id == id }) else { return }
-        peers[i].paused = paused
-        peers[i].pauseReason = paused ? reason : nil
+        peers[i].pausedUntil = until
+    }
+
+    /// Approves a device that was waiting, or sends an approved one back to waiting.
+    mutating func setPeerApproval(_ id: Peer.ID, _ approval: Approval) {
+        guard let i = peers.firstIndex(where: { $0.id == id }) else { return }
+        peers[i].approval = approval
+    }
+
+    /// Sets a device's speed limits in bytes per second, or lifts them with nil.
+    mutating func setPeerSpeedLimits(_ id: Peer.ID, down: UInt64?, up: UInt64?) {
+        guard let i = peers.firstIndex(where: { $0.id == id }) else { return }
+        peers[i].downLimitBps = down
+        peers[i].upLimitBps = up
     }
 
     /// Makes a device a guest until `expiresAt`, or permanent again with nil.
@@ -219,6 +306,53 @@ struct WireGuardSetup: Codable, Equatable {
     /// The guests whose time is up by `now`. Model removes them, which revokes their keys.
     func expiredPeers(now: Date) -> [Peer] {
         peers.filter { $0.isExpired(now: now) }
+    }
+
+    // MARK: - Denied keys and one-time guest passes
+
+    func isDenied(_ publicKey: Data) -> Bool { deniedKeys.contains(publicKey) }
+
+    /// Denies a key for good. Denying is forever: there is no undeny, a device can
+    /// always be paired again with a fresh key instead.
+    mutating func denyKey(_ publicKey: Data) {
+        if !deniedKeys.contains(publicKey) { deniedKeys.append(publicKey) }
+    }
+
+    /// Adds a one-time guest pass device and returns it WITH its private key: the
+    /// caller shows the QR code from it and keeps the key in memory only. The saved
+    /// copy has no key, so the code can never be shown again or backed up. Nil when
+    /// all 253 addresses are taken.
+    mutating func addGuestPass(qrExpiresAt: Date, accessExpiresAt: Date) -> Peer? {
+        guard var peer = newPeer() else { return nil }
+        peer.name = freeName("Guest")
+        peer.guestPass = GuestPass(qrExpiresAt: qrExpiresAt, accessExpiresAt: accessExpiresAt, consumedAt: nil)
+        var saved = peer
+        saved.privateKey = Data()
+        peers.append(saved)
+        return peer
+    }
+
+    /// Marks a guest pass used: its device connected for the first time at `date`.
+    mutating func consumeGuestPass(_ id: Peer.ID, at date: Date) {
+        guard let i = peers.firstIndex(where: { $0.id == id }), peers[i].guestPass != nil else { return }
+        peers[i].guestPass?.consumedAt = date
+    }
+
+    /// Guest passes still waiting to be used. Tunnel addresses are finite, so Model
+    /// caps how many of these there can be.
+    var unusedGuestPassCount: Int {
+        peers.count { $0.guestPass != nil && $0.guestPass?.consumedAt == nil }
+    }
+
+    /// Removes guest passes whose code lapsed unused by `now`, and denies their keys,
+    /// so a code someone photographed can never be used late. Returns the removed.
+    mutating func pruneLapsedGuestPasses(now: Date) -> [Peer] {
+        let lapsed = peers.filter { peer in
+            peer.guestPass.map { $0.consumedAt == nil && $0.qrExpiresAt <= now } ?? false
+        }
+        for peer in lapsed { denyKey(peer.publicKey) }
+        peers.removeAll { peer in lapsed.contains { $0.id == peer.id } }
+        return lapsed
     }
 
     /// "Device", then "Device 2", "Device 3", skipping names already taken.
@@ -370,10 +504,10 @@ final class WireGuardDevices {
 
     /// See `WireGuardSetup.claimReady`. False too when it couldn't be saved, and then nothing changes,
     /// so the next sample tries again.
-    func claimReady(address: String) -> Bool {
+    func claimReady(address: String, approval: WireGuardSetup.Approval = .approved) -> Bool {
         guard loaded else { return false }
         let before = setup
-        guard setup.claimReady(address: address) else { return false }
+        guard setup.claimReady(address: address, approval: approval) else { return false }
         do {
             try save()
             return true
@@ -391,8 +525,77 @@ final class WireGuardDevices {
 
     /// False when the change couldn't be saved, and then nothing changes.
     @discardableResult
-    func setPaused(_ id: WireGuardSetup.Peer.ID, _ paused: Bool, reason: WireGuardSetup.PauseReason = .manual) -> Bool {
-        change { $0.setPeerPaused(id, paused, reason: reason) }
+    func setPausedUntil(_ id: WireGuardSetup.Peer.ID, _ until: Date?) -> Bool {
+        change { $0.setPeerPausedUntil(id, until) }
+    }
+
+    @discardableResult
+    func setApproval(_ id: WireGuardSetup.Peer.ID, _ approval: WireGuardSetup.Approval) -> Bool {
+        change { $0.setPeerApproval(id, approval) }
+    }
+
+    @discardableResult
+    func setSpeedLimits(_ id: WireGuardSetup.Peer.ID, down: UInt64?, up: UInt64?) -> Bool {
+        change { $0.setPeerSpeedLimits(id, down: down, up: up) }
+    }
+
+    @discardableResult
+    func denyKey(_ publicKey: Data) -> Bool {
+        change { $0.denyKey(publicKey) }
+    }
+
+    /// Adds a one-time guest pass (see `WireGuardSetup.addGuestPass`). The returned
+    /// device carries its private key; the saved one doesn't. Nil when the subnet is
+    /// full or the pass couldn't be saved, and then nothing changes.
+    func addGuestPass(qrExpiresAt: Date, accessExpiresAt: Date) -> WireGuardSetup.Peer? {
+        guard loaded else { return nil }
+        let before = setup
+        guard let peer = setup.addGuestPass(qrExpiresAt: qrExpiresAt, accessExpiresAt: accessExpiresAt) else { return nil }
+        do {
+            try save()
+            return peer
+        } catch {
+            setup = before
+            return nil
+        }
+    }
+
+    @discardableResult
+    func consumeGuestPass(_ id: WireGuardSetup.Peer.ID, at date: Date) -> Bool {
+        change { $0.consumeGuestPass(id, at: date) }
+    }
+
+    /// Removes guest passes whose code lapsed unused. Empty when there were none or
+    /// the removal couldn't be saved, and then nothing changes.
+    func pruneLapsedGuestPasses(now: Date) -> [WireGuardSetup.Peer] {
+        guard loaded else { return [] }
+        let before = setup
+        let removed = setup.pruneLapsedGuestPasses(now: now)
+        if removed.isEmpty { return [] }
+        do {
+            try save()
+            return removed
+        } catch {
+            setup = before
+            return []
+        }
+    }
+
+    /// Replaces the whole setup, for restoring a backup. The replacement is validated
+    /// by the caller (see Backup.swift) before it gets here. False when it couldn't
+    /// be saved, and then nothing changes.
+    @discardableResult
+    func replaceSetup(_ newSetup: WireGuardSetup) -> Bool {
+        guard loaded else { return false }
+        let before = setup
+        setup = newSetup
+        do {
+            try save()
+            return true
+        } catch {
+            setup = before
+            return false
+        }
     }
 
     @discardableResult

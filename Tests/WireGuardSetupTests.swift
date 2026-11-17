@@ -302,23 +302,26 @@ final class PeerAccessTests: XCTestCase {
         let device = try XCTUnwrap(decoded.peers.first)
         XCTAssertEqual(device.id, peer.id)
         XCTAssertNil(device.expiresAt)
-        XCTAssertFalse(device.paused)
-        XCTAssertNil(device.pauseReason)
+        XCTAssertNil(device.pausedUntil)
         XCTAssertNil(device.capBytes)
         XCTAssertEqual(device.kind, .other)
     }
 
-    func testAPausedDeviceIsNotInTheServersPeersButStaysPaired() throws {
+    func testAPausedDeviceStaysInTheServersPeersAndStaysPaired() throws {
+        // Since 1.2 a pause no longer takes the device out of the server: removing
+        // and re-adding it reset its counters and forced a new handshake, and a
+        // timed pause could only end when something ran to re-add it. It stays in
+        // the server and the policy layer blocks it (see AccessControl).
         var setup = WireGuardSetup.new()
         let a = try XCTUnwrap(setup.addPeer(name: "iPad"))
         let b = try XCTUnwrap(setup.addPeer(name: "Mac"))
         setup.prepareReady()
-        setup.setPeerPaused(a.id, true)
+        setup.setPeerPausedUntil(a.id, .distantFuture)
         XCTAssertEqual(setup.peers.count, 2, "still paired")
-        XCTAssertEqual(setup.serverPeers.map(\.id), [b.id] + [setup.ready!.id], "but the server doesn't let it in")
-        setup.setPeerPaused(a.id, false)
-        XCTAssertTrue(setup.serverPeers.contains { $0.id == a.id }, "resuming lets it in again")
-        XCTAssertNil(setup.peers.first { $0.id == a.id }?.pauseReason, "resuming clears the reason")
+        XCTAssertEqual(setup.serverPeers.map(\.id), [a.id, b.id] + [setup.ready!.id], "and still in the server")
+        XCTAssertTrue(setup.peers[0].isPaused(now: Date()))
+        setup.setPeerPausedUntil(a.id, nil)
+        XCTAssertFalse(setup.peers[0].isPaused(now: Date()), "resumed")
     }
 
     func testAGuestExpiresAtItsDate() throws {
@@ -340,13 +343,12 @@ final class PeerAccessTests: XCTestCase {
         let peer = devices.connectReady()!
         let until = Date(timeIntervalSince1970: 1_800_000_000)
         XCTAssertTrue(devices.setExpiry(peer.id, to: until))
-        XCTAssertTrue(devices.setPaused(peer.id, true, reason: .cap))
+        XCTAssertTrue(devices.setPausedUntil(peer.id, until))
         XCTAssertTrue(devices.setCap(peer.id, to: 1_000_000_000))
         XCTAssertTrue(devices.setKind(peer.id, to: .router))
         let reloaded = WireGuardDevices(secrets: secrets).setup.peers.first
         XCTAssertEqual(reloaded?.expiresAt, until)
-        XCTAssertEqual(reloaded?.paused, true)
-        XCTAssertEqual(reloaded?.pauseReason, .cap)
+        XCTAssertEqual(reloaded?.pausedUntil, until)
         XCTAssertEqual(reloaded?.capBytes, 1_000_000_000)
         XCTAssertEqual(reloaded?.kind, .router)
     }
