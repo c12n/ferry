@@ -12,14 +12,16 @@ enum BatteryGuard {
     /// (iOS doesn't know it) never stops anything.
     static func shouldStop(level: Float, isCharging: Bool, thresholdPercent: Int) -> Bool {
         guard thresholdPercent > 0, !isCharging, level >= 0 else { return false }
-        return level * 100 <= Float(thresholdPercent)
+        // Whole percents: a reported 0.30 is 30.000001 in Float, and the guard
+        // must still stop at the 30 the person picked.
+        return (level * 100).rounded() <= Float(thresholdPercent)
     }
 
     /// The warning comes one step (10 points) above the stop level, while there's still
     /// time to plug in: at or below `threshold + 10` but above the threshold itself.
     static func shouldWarn(level: Float, isCharging: Bool, thresholdPercent: Int) -> Bool {
         guard thresholdPercent > 0, !isCharging, level >= 0 else { return false }
-        let percent = level * 100
+        let percent = (level * 100).rounded()
         return percent <= Float(thresholdPercent + 10) && percent > Float(thresholdPercent)
     }
 
@@ -29,6 +31,6 @@ enum BatteryGuard {
     static func recovered(level: Float, isCharging: Bool, thresholdPercent: Int) -> Bool {
         if isCharging { return true }
         guard level >= 0 else { return false }
-        return level * 100 > Float(thresholdPercent + 5)
+        return (level * 100).rounded() > Float(thresholdPercent + 5)
     }
 }
