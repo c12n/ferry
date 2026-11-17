@@ -14,6 +14,10 @@ struct TetherActivityAttributes: ActivityAttributes {
         var upSpeed: Double
         /// Every device's usage today, up and down together, in bytes.
         var usageToday: UInt64
+        /// The session summary, set only on the final state when a session ends, so
+        /// the Lock Screen and the watch's Smart Stack show how the session went for
+        /// a while after it ends. Nil while sharing.
+        var summary: String? = nil
     }
 
     /// Fixed for every activity: there is only the one session.

@@ -341,7 +341,7 @@ struct WireGuardSetup: Codable, Equatable {
     /// Guest passes still waiting to be used. Tunnel addresses are finite, so Model
     /// caps how many of these there can be.
     var unusedGuestPassCount: Int {
-        peers.count { $0.guestPass != nil && $0.guestPass?.consumedAt == nil }
+        peers.filter { $0.guestPass != nil && $0.guestPass?.consumedAt == nil }.count
     }
 
     /// Removes guest passes whose code lapsed unused by `now`, and denies their keys,

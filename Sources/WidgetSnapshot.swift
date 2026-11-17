@@ -14,6 +14,74 @@ struct WidgetSnapshot: Codable, Equatable {
     /// Every device's usage today, up and down together, in bytes.
     var usageToday: UInt64
     var updatedAt: Date
+    /// When the app last wrote a snapshot, sharing or not. The Control Center control
+    /// calls sharing "on" only while this is fresh (under 20 seconds): a snapshot from
+    /// a suspended or killed app must not claim Ferry is sharing. Written by the app
+    /// only; snapshots saved before 1.2 have none and read as the distant past.
+    var heartbeatAt: Date = .distantPast
+    /// Devices waiting for approval. Zero before 1.2.
+    var waitingCount: Int = 0
+
+    private enum CodingKeys: String, CodingKey {
+        case isSharing, connectedDevices, downSpeed, upSpeed, usageToday, updatedAt, heartbeatAt, waitingCount
+    }
+
+    init(isSharing: Bool, connectedDevices: Int, downSpeed: Double, upSpeed: Double,
+         usageToday: UInt64, updatedAt: Date, heartbeatAt: Date = .distantPast, waitingCount: Int = 0) {
+        self.isSharing = isSharing
+        self.connectedDevices = connectedDevices
+        self.downSpeed = downSpeed
+        self.upSpeed = upSpeed
+        self.usageToday = usageToday
+        self.updatedAt = updatedAt
+        self.heartbeatAt = heartbeatAt
+        self.waitingCount = waitingCount
+    }
+
+    init(from decoder: Decoder) throws {
+        let box = try decoder.container(keyedBy: CodingKeys.self)
+        isSharing = try box.decode(Bool.self, forKey: .isSharing)
+        connectedDevices = try box.decode(Int.self, forKey: .connectedDevices)
+        downSpeed = try box.decode(Double.self, forKey: .downSpeed)
+        upSpeed = try box.decode(Double.self, forKey: .upSpeed)
+        usageToday = try box.decode(UInt64.self, forKey: .usageToday)
+        updatedAt = try box.decode(Date.self, forKey: .updatedAt)
+        heartbeatAt = try box.decodeIfPresent(Date.self, forKey: .heartbeatAt) ?? .distantPast
+        waitingCount = try box.decodeIfPresent(Int.self, forKey: .waitingCount) ?? 0
+    }
+}
+
+/// A Start or Stop asked for outside the app: the Control Center control and the
+/// widget's buttons in the widget extension, which can't run the server. The request
+/// is a note in the App Group; the app acts on it the next time it wakes (a control
+/// press wakes it, through the intent's app side). Requests are moments, not state:
+/// one older than a minute is stale and dropped, and acting consumes it, so a
+/// request can never fire twice.
+enum ControlRequestStore {
+    private static let key = "tether.controlRequest.v1"
+
+    enum Request: String, Codable {
+        case start, stop
+    }
+
+    private struct Stored: Codable {
+        var request: Request
+        var at: Date
+    }
+
+    static func save(_ request: Request, at date: Date = Date(), to defaults: UserDefaults? = WidgetSnapshotStore.defaults()) {
+        guard let defaults, let data = try? JSONEncoder().encode(Stored(request: request, at: date)) else { return }
+        defaults.set(data, forKey: key)
+    }
+
+    /// The pending request, if any, clearing it either way.
+    static func consume(from defaults: UserDefaults? = WidgetSnapshotStore.defaults(), now: Date = Date()) -> Request? {
+        guard let defaults, let data = defaults.data(forKey: key) else { return nil }
+        defaults.removeObject(forKey: key)
+        guard let stored = try? JSONDecoder().decode(Stored.self, from: data),
+              now.timeIntervalSince(stored.at) < 60 else { return nil }
+        return stored.request
+    }
 }
 
 enum WidgetSnapshotStore {

@@ -14,9 +14,11 @@ struct StartTetherIntent: AppIntent {
     @MainActor
     func perform() async throws -> some IntentResult & ReturnsValue<Bool> & ProvidesDialog {
         let model = Model.shared
-        let keptAlive = model.wake()
+        // Through the sharing controller, like every other outside start.
+        let started = await model.controller.requestStart()
+        let keptAlive = model.keepAliveSounding
         let state = model.shortcutState()
-        return .result(value: state.sharing, dialog: "\(ShortcutReply.start(state, keptAlive: keptAlive, idleLimit: model.idleLimit))")
+        return .result(value: started && state.sharing, dialog: "\(ShortcutReply.start(state, keptAlive: keptAlive, idleLimit: model.idleLimit))")
     }
 }
 

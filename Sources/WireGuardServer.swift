@@ -46,6 +46,7 @@ final class WireGuardServer {
         TetherWGStop()
         running = false
         connectedAddresses = []
+        lastPolicies = [] // the new run has none; Model resends them
     }
 
     /// Lets in exactly the devices in `setup`. A removed device's open connections finish on their own.
@@ -64,6 +65,60 @@ final class WireGuardServer {
             }
         }
         if let message = take(error) { throw Failure(message: message) }
+    }
+
+    /// One device's forwarding policy, as the Go side takes it (see PeerPolicy in
+    /// server.go). Model works these out from AccessControl; the server enforces them
+    /// where the traffic is forwarded.
+    struct PeerPolicy: Encodable, Equatable {
+        var address: String
+        /// Waiting for approval: handshakes only, no traffic.
+        var noForward = false
+        /// Blocked by a cap or a guest pass that ended: no new connections, no UDP.
+        var blockedNow = false
+        /// A timed pause's end, as Unix seconds. 0 is no timed pause; a hand pause
+        /// with no end date is sent as the distant future's Unix time.
+        var pausedUntil: Int64 = 0
+        /// Speed limits in bytes per second, 0 for no limit.
+        var downBps: UInt64 = 0
+        var upBps: UInt64 = 0
+
+        private enum CodingKeys: String, CodingKey {
+            case address, noForward, blocked, pausedUntil, downBps, upBps
+        }
+
+        func encode(to encoder: Encoder) throws {
+            var box = encoder.container(keyedBy: CodingKeys.self)
+            try box.encode(address, forKey: .address)
+            try box.encode(noForward, forKey: .noForward)
+            try box.encode(blockedNow, forKey: .blocked)
+            try box.encode(pausedUntil, forKey: .pausedUntil)
+            try box.encode(downBps, forKey: .downBps)
+            try box.encode(upBps, forKey: .upBps)
+        }
+    }
+
+    /// Replaces the devices' forwarding policies. Called whenever they may have
+    /// changed; the Go side replaces them wholesale, and a device that became
+    /// blocked loses its open connections there. Returns an error message, if any.
+    @discardableResult
+    func setPolicies(_ policies: [PeerPolicy]) -> String? {
+        guard running else { return nil }
+        guard let data = try? JSONEncoder().encode(policies),
+              let json = String(data: data, encoding: .utf8) else { return "the policies couldn't be encoded" }
+        let error = json.withCString { TetherWGSetPolicies(UnsafeMutablePointer(mutating: $0)) }
+        if let message = take(error) { return message }
+        lastPolicies = policies
+        return nil
+    }
+
+    /// The policies last sent, so a caller can skip resending the same ones.
+    private(set) var lastPolicies: [PeerPolicy] = []
+
+    /// Closes a device's open connections at once.
+    func closePeer(address: String) {
+        guard running else { return }
+        address.withCString { TetherWGClosePeer(UnsafeMutablePointer(mutating: $0)) }
     }
 
     /// Gives memory Go's GC has freed back to iOS, on a memory warning.

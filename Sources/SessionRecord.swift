@@ -21,7 +21,7 @@ struct SessionRecord: Codable, Equatable {
 
     var isOpen: Bool { endedAt == nil }
 
-    var devicesWithTraffic: Int { perPeer.values.count { $0.total > 0 } }
+    var devicesWithTraffic: Int { perPeer.values.filter { $0.total > 0 }.count }
 
     var totalUsage: DeviceUsage { perPeer.values.reduce(DeviceUsage()) { $0 + $1 } }
 
