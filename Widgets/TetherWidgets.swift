@@ -10,11 +10,9 @@ import WidgetKit
 struct TetherWidgets: WidgetBundle {
     var body: some Widget {
         TetherStatusWidget()
+        TetherLiveActivityWidget()
         if #available(iOS 18.0, *) {
-            TetherLiveActivityWidgetSmall()
             FerryControl()
-        } else {
-            TetherLiveActivityWidget()
         }
     }
 }
@@ -162,7 +160,7 @@ struct LiveActivityContent: View {
 
 struct TetherLiveActivityWidget: Widget {
     var body: some WidgetConfiguration {
-        ActivityConfiguration(for: TetherActivityAttributes.self) { context in
+        let configuration = ActivityConfiguration(for: TetherActivityAttributes.self) { context in
             LiveActivityContent(state: context.state)
         } dynamicIsland: { context in
             DynamicIsland {
@@ -185,38 +183,12 @@ struct TetherLiveActivityWidget: Widget {
                 Image(systemName: "link")
             }
         }
-    }
-}
-
-/// The iOS 18 variant, which also puts the Live Activity in the Apple Watch's
-/// Smart Stack (the small supplemental family is the watch's).
-@available(iOS 18.0, *)
-struct TetherLiveActivityWidgetSmall: Widget {
-    var body: some WidgetConfiguration {
-        ActivityConfiguration(for: TetherActivityAttributes.self) { context in
-            LiveActivityContent(state: context.state)
-        } dynamicIsland: { context in
-            DynamicIsland {
-                DynamicIslandExpandedRegion(.leading) {
-                    Image(systemName: "link").foregroundStyle(.green)
-                }
-                DynamicIslandExpandedRegion(.trailing) {
-                    Text("\(context.state.connectedDevices)")
-                        .font(.title3.bold())
-                }
-                DynamicIslandExpandedRegion(.bottom) {
-                    Text("↓ \(Format.speed(context.state.downSpeed))  ↑ \(Format.speed(context.state.upSpeed))  ·  \(Format.bytes(context.state.usageToday)) today")
-                        .font(.subheadline)
-                }
-            } compactLeading: {
-                Image(systemName: "link").foregroundStyle(.green)
-            } compactTrailing: {
-                Text("\(context.state.connectedDevices)")
-            } minimal: {
-                Image(systemName: "link")
-            }
+        // The watch Smart Stack family exists from iOS 18; the configuration is
+        // the same one either way, only the family list differs.
+        if #available(iOS 18.0, *) {
+            return configuration.supplementalActivityFamilies([.small])
         }
-        .supplementalActivityFamilies([.small])
+        return configuration
     }
 }
 
@@ -229,7 +201,7 @@ struct TetherLiveActivityWidgetSmall: Widget {
 struct FerryControl: ControlWidget {
     var body: some ControlWidgetConfiguration {
         StaticControlConfiguration(kind: "FerrySharingControl", provider: FerryControlProvider()) { value in
-            ControlWidgetToggle(isOn: value, intent: SetSharingIntent()) { isOn in
+            ControlWidgetToggle("Ferry", isOn: value, action: SetSharingIntent()) { isOn in
                 Label(isOn ? "Sharing" : "Ferry", systemImage: "link")
             }
         }
